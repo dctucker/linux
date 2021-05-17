@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /****************************************************************************
  * Driver for Solarflare network controllers and boards
  * Copyright 2005-2006 Fen Systems Ltd.
  * Copyright 2006-2013 Solarflare Communications Inc.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published
- * by the Free Software Foundation, incorporated herein by reference.
  */
 
 #include <linux/bitops.h>
@@ -17,12 +14,15 @@
 #include "net_driver.h"
 #include "bitfield.h"
 #include "efx.h"
+#include "efx_common.h"
 #include "nic.h"
 #include "farch_regs.h"
 #include "io.h"
 #include "workarounds.h"
 #include "mcdi.h"
 #include "mcdi_pcol.h"
+#include "mcdi_port.h"
+#include "mcdi_port_common.h"
 #include "selftest.h"
 #include "siena_sriov.h"
 
@@ -277,7 +277,9 @@ static int siena_probe_nic(struct efx_nic *efx)
 	}
 
 	efx->max_channels = EFX_MAX_CHANNELS;
+	efx->max_vis = EFX_MAX_CHANNELS;
 	efx->max_tx_channels = EFX_MAX_CHANNELS;
+	efx->tx_queues_per_channel = 4;
 
 	efx_reado(efx, &reg, FR_AZ_CS_DEBUG);
 	efx->port_num = EFX_OWORD_FIELD(reg, FRF_CZ_CS_PORT_NUM) - 1;
@@ -350,11 +352,11 @@ static int siena_rx_pull_rss_config(struct efx_nic *efx)
 	 * siena_rx_push_rss_config, below)
 	 */
 	efx_reado(efx, &temp, FR_CZ_RX_RSS_IPV6_REG1);
-	memcpy(efx->rx_hash_key, &temp, sizeof(temp));
+	memcpy(efx->rss_context.rx_hash_key, &temp, sizeof(temp));
 	efx_reado(efx, &temp, FR_CZ_RX_RSS_IPV6_REG2);
-	memcpy(efx->rx_hash_key + sizeof(temp), &temp, sizeof(temp));
+	memcpy(efx->rss_context.rx_hash_key + sizeof(temp), &temp, sizeof(temp));
 	efx_reado(efx, &temp, FR_CZ_RX_RSS_IPV6_REG3);
-	memcpy(efx->rx_hash_key + 2 * sizeof(temp), &temp,
+	memcpy(efx->rss_context.rx_hash_key + 2 * sizeof(temp), &temp,
 	       FRF_CZ_RX_RSS_IPV6_TKEY_HI_WIDTH / 8);
 	efx_farch_rx_pull_indir_table(efx);
 	return 0;
@@ -367,26 +369,26 @@ static int siena_rx_push_rss_config(struct efx_nic *efx, bool user,
 
 	/* Set hash key for IPv4 */
 	if (key)
-		memcpy(efx->rx_hash_key, key, sizeof(temp));
-	memcpy(&temp, efx->rx_hash_key, sizeof(temp));
+		memcpy(efx->rss_context.rx_hash_key, key, sizeof(temp));
+	memcpy(&temp, efx->rss_context.rx_hash_key, sizeof(temp));
 	efx_writeo(efx, &temp, FR_BZ_RX_RSS_TKEY);
 
 	/* Enable IPv6 RSS */
-	BUILD_BUG_ON(sizeof(efx->rx_hash_key) <
+	BUILD_BUG_ON(sizeof(efx->rss_context.rx_hash_key) <
 		     2 * sizeof(temp) + FRF_CZ_RX_RSS_IPV6_TKEY_HI_WIDTH / 8 ||
 		     FRF_CZ_RX_RSS_IPV6_TKEY_HI_LBN != 0);
-	memcpy(&temp, efx->rx_hash_key, sizeof(temp));
+	memcpy(&temp, efx->rss_context.rx_hash_key, sizeof(temp));
 	efx_writeo(efx, &temp, FR_CZ_RX_RSS_IPV6_REG1);
-	memcpy(&temp, efx->rx_hash_key + sizeof(temp), sizeof(temp));
+	memcpy(&temp, efx->rss_context.rx_hash_key + sizeof(temp), sizeof(temp));
 	efx_writeo(efx, &temp, FR_CZ_RX_RSS_IPV6_REG2);
 	EFX_POPULATE_OWORD_2(temp, FRF_CZ_RX_RSS_IPV6_THASH_ENABLE, 1,
 			     FRF_CZ_RX_RSS_IPV6_IP_THASH_ENABLE, 1);
-	memcpy(&temp, efx->rx_hash_key + 2 * sizeof(temp),
+	memcpy(&temp, efx->rss_context.rx_hash_key + 2 * sizeof(temp),
 	       FRF_CZ_RX_RSS_IPV6_TKEY_HI_WIDTH / 8);
 	efx_writeo(efx, &temp, FR_CZ_RX_RSS_IPV6_REG3);
 
-	memcpy(efx->rx_indir_table, rx_indir_table,
-	       sizeof(efx->rx_indir_table));
+	memcpy(efx->rss_context.rx_indir_table, rx_indir_table,
+	       sizeof(efx->rss_context.rx_indir_table));
 	efx_farch_rx_push_indir_table(efx);
 
 	return 0;
@@ -432,8 +434,8 @@ static int siena_init_nic(struct efx_nic *efx)
 			    EFX_RX_USR_BUF_SIZE >> 5);
 	efx_writeo(efx, &temp, FR_AZ_RX_CFG);
 
-	siena_rx_push_rss_config(efx, false, efx->rx_indir_table, NULL);
-	efx->rss_active = true;
+	siena_rx_push_rss_config(efx, false, efx->rss_context.rx_indir_table, NULL);
+	efx->rss_context.context_id = 0; /* indicates RSS is active */
 
 	/* Enable event logging */
 	rc = efx_mcdi_log_ctrl(efx, true, false, 0);
@@ -632,7 +634,7 @@ static size_t siena_update_nic_stats(struct efx_nic *efx, u64 *full_stats,
 	return SIENA_STAT_COUNT;
 }
 
-static int siena_mac_reconfigure(struct efx_nic *efx)
+static int siena_mac_reconfigure(struct efx_nic *efx, bool mtu_only __always_unused)
 {
 	MCDI_DECLARE_BUF(inbuf, MC_CMD_SET_MCAST_HASH_IN_LEN);
 	int rc;
@@ -949,6 +951,13 @@ fail:
 
 #endif /* CONFIG_SFC_MTD */
 
+static unsigned int siena_check_caps(const struct efx_nic *efx,
+				     u8 flag, u32 offset)
+{
+	/* Siena did not support MC_CMD_GET_CAPABILITIES */
+	return 0;
+}
+
 /**************************************************************************
  *
  * Revision-dependent attributes used by efx.c and nic.c
@@ -985,7 +994,6 @@ const struct efx_nic_type siena_a0_nic_type = {
 	.start_stats = efx_mcdi_mac_start_stats,
 	.pull_stats = efx_mcdi_mac_pull_stats,
 	.stop_stats = efx_mcdi_mac_stop_stats,
-	.set_id_led = efx_mcdi_set_id_led,
 	.push_irq_moderation = siena_push_irq_moderation,
 	.reconfigure_mac = siena_mac_reconfigure,
 	.check_mac_fault = efx_mcdi_mac_check_fault,
@@ -1009,6 +1017,7 @@ const struct efx_nic_type siena_a0_nic_type = {
 	.tx_remove = efx_farch_tx_remove,
 	.tx_write = efx_farch_tx_write,
 	.tx_limit_len = efx_farch_tx_limit_len,
+	.tx_enqueue = __efx_enqueue_skb,
 	.rx_push_rss_config = siena_rx_push_rss_config,
 	.rx_pull_rss_config = siena_rx_pull_rss_config,
 	.rx_probe = efx_farch_rx_probe,
@@ -1016,6 +1025,7 @@ const struct efx_nic_type siena_a0_nic_type = {
 	.rx_remove = efx_farch_rx_remove,
 	.rx_write = efx_farch_rx_write,
 	.rx_defer_refill = efx_farch_rx_defer_refill,
+	.rx_packet = __efx_rx_packet,
 	.ev_probe = efx_farch_ev_probe,
 	.ev_init = efx_farch_ev_init,
 	.ev_fini = efx_farch_ev_fini,
@@ -1035,7 +1045,6 @@ const struct efx_nic_type siena_a0_nic_type = {
 	.filter_get_rx_id_limit = efx_farch_filter_get_rx_id_limit,
 	.filter_get_rx_ids = efx_farch_filter_get_rx_ids,
 #ifdef CONFIG_RFS_ACCEL
-	.filter_rfs_insert = efx_farch_filter_rfs_insert,
 	.filter_rfs_expire_one = efx_farch_filter_rfs_expire_one,
 #endif
 #ifdef CONFIG_SFC_MTD
@@ -1078,7 +1087,6 @@ const struct efx_nic_type siena_a0_nic_type = {
 	.can_rx_scatter = true,
 	.option_descriptors = false,
 	.min_interrupt_mode = EFX_INT_MODE_LEGACY,
-	.max_interrupt_mode = EFX_INT_MODE_MSIX,
 	.timer_period_max = 1 << FRF_CZ_TC_TIMER_VAL_WIDTH,
 	.offload_features = (NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
 			     NETIF_F_RXHASH | NETIF_F_NTUPLE),
@@ -1088,4 +1096,6 @@ const struct efx_nic_type siena_a0_nic_type = {
 			     1 << HWTSTAMP_FILTER_PTP_V1_L4_EVENT |
 			     1 << HWTSTAMP_FILTER_PTP_V2_L4_EVENT),
 	.rx_hash_key_size = 16,
+	.check_caps = siena_check_caps,
+	.sensor_event = efx_mcdi_sensor_event,
 };

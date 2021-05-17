@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Support for mt9m114 Camera Sensor.
  *
@@ -62,7 +63,7 @@ mt9m114_read_reg(struct i2c_client *client, u16 data_length, u32 reg, u32 *val)
 	}
 
 	if (data_length != MISENSOR_8BIT && data_length != MISENSOR_16BIT
-					 && data_length != MISENSOR_32BIT) {
+	    && data_length != MISENSOR_32BIT) {
 		v4l2_err(client, "%s error, invalid data length\n", __func__);
 		return -EINVAL;
 	}
@@ -73,8 +74,8 @@ mt9m114_read_reg(struct i2c_client *client, u16 data_length, u32 reg, u32 *val)
 	msg[0].buf = data;
 
 	/* high byte goes out first */
-	data[0] = (u16) (reg >> 8);
-	data[1] = (u16) (reg & 0xff);
+	data[0] = (u16)(reg >> 8);
+	data[1] = (u16)(reg & 0xff);
 
 	msg[1].addr = client->addr;
 	msg[1].len = data_length;
@@ -92,7 +93,7 @@ mt9m114_read_reg(struct i2c_client *client, u16 data_length, u32 reg, u32 *val)
 			*val = data[1] + (data[0] << 8);
 		else
 			*val = data[3] + (data[2] << 8) +
-			    (data[1] << 16) + (data[0] << 24);
+			       (data[1] << 16) + (data[0] << 24);
 
 		return 0;
 	}
@@ -107,7 +108,7 @@ mt9m114_write_reg(struct i2c_client *client, u16 data_length, u16 reg, u32 val)
 	int num_msg;
 	struct i2c_msg msg;
 	unsigned char data[6] = {0};
-	u16 *wreg;
+	__be16 *wreg;
 	int retry = 0;
 
 	if (!client->adapter) {
@@ -116,7 +117,7 @@ mt9m114_write_reg(struct i2c_client *client, u16 data_length, u16 reg, u32 val)
 	}
 
 	if (data_length != MISENSOR_8BIT && data_length != MISENSOR_16BIT
-					 && data_length != MISENSOR_32BIT) {
+	    && data_length != MISENSOR_32BIT) {
 		v4l2_err(client, "%s error, invalid data_length\n", __func__);
 		return -EINVAL;
 	}
@@ -130,18 +131,20 @@ again:
 	msg.buf = data;
 
 	/* high byte goes out first */
-	wreg = (u16 *)data;
+	wreg = (void *)data;
 	*wreg = cpu_to_be16(reg);
 
 	if (data_length == MISENSOR_8BIT) {
 		data[2] = (u8)(val);
 	} else if (data_length == MISENSOR_16BIT) {
-		u16 *wdata = (u16 *)&data[2];
-		*wdata = be16_to_cpu((u16)val);
+		u16 *wdata = (void *)&data[2];
+
+		*wdata = be16_to_cpu(*(__be16 *)&data[2]);
 	} else {
 		/* MISENSOR_32BIT */
-		u32 *wdata = (u32 *)&data[2];
-		*wdata = be32_to_cpu(val);
+		u32 *wdata = (void *)&data[2];
+
+		*wdata = be32_to_cpu(*(__be32 *)&data[2]);
 	}
 
 	num_msg = i2c_transfer(client->adapter, &msg, 1);
@@ -181,7 +184,7 @@ again:
  */
 static int
 misensor_rmw_reg(struct i2c_client *client, u16 data_length, u16 reg,
-		     u32 mask, u32 set)
+		 u32 mask, u32 set)
 {
 	int err;
 	u32 val;
@@ -209,7 +212,7 @@ misensor_rmw_reg(struct i2c_client *client, u16 data_length, u16 reg,
 
 	err = mt9m114_read_reg(client, data_length, reg, &val);
 	if (err) {
-		v4l2_err(client, "misensor_rmw_reg error exit, read failed\n");
+		v4l2_err(client, "%s error exit, read failed\n", __func__);
 		return -EINVAL;
 	}
 
@@ -230,13 +233,12 @@ misensor_rmw_reg(struct i2c_client *client, u16 data_length, u16 reg,
 
 	err = mt9m114_write_reg(client, data_length, reg, val);
 	if (err) {
-		v4l2_err(client, "misensor_rmw_reg error exit, write failed\n");
+		v4l2_err(client, "%s error exit, write failed\n", __func__);
 		return -EINVAL;
 	}
 
 	return 0;
 }
-
 
 static int __mt9m114_flush_reg_array(struct i2c_client *client,
 				     struct mt9m114_write_ctrl *ctrl)
@@ -245,6 +247,7 @@ static int __mt9m114_flush_reg_array(struct i2c_client *client,
 	const int num_msg = 1;
 	int ret;
 	int retry = 0;
+	__be16 *data16 = (void *)&ctrl->buffer.addr;
 
 	if (ctrl->index == 0)
 		return 0;
@@ -253,7 +256,7 @@ again:
 	msg.addr = client->addr;
 	msg.flags = 0;
 	msg.len = 2 + ctrl->index;
-	ctrl->buffer.addr = cpu_to_be16(ctrl->buffer.addr);
+	*data16 = cpu_to_be16(ctrl->buffer.addr);
 	msg.buf = (u8 *)&ctrl->buffer;
 
 	ret = i2c_transfer(client->adapter, &msg, num_msg);
@@ -282,8 +285,8 @@ static int __mt9m114_buf_reg_array(struct i2c_client *client,
 				   struct mt9m114_write_ctrl *ctrl,
 				   const struct misensor_reg *next)
 {
-	u16 *data16;
-	u32 *data32;
+	__be16 *data16;
+	__be32 *data32;
 	int err;
 
 	/* Insufficient buffer? Let's flush and get more free space. */
@@ -298,11 +301,11 @@ static int __mt9m114_buf_reg_array(struct i2c_client *client,
 		ctrl->buffer.data[ctrl->index] = (u8)next->val;
 		break;
 	case MISENSOR_16BIT:
-		data16 = (u16 *)&ctrl->buffer.data[ctrl->index];
+		data16 = (__be16 *)&ctrl->buffer.data[ctrl->index];
 		*data16 = cpu_to_be16((u16)next->val);
 		break;
 	case MISENSOR_32BIT:
-		data32 = (u32 *)&ctrl->buffer.data[ctrl->index];
+		data32 = (__be32 *)&ctrl->buffer.data[ctrl->index];
 		*data32 = cpu_to_be32(next->val);
 		break;
 	default:
@@ -344,8 +347,8 @@ __mt9m114_write_reg_is_consecutive(struct i2c_client *client,
  *
  */
 static int mt9m114_write_reg_array(struct i2c_client *client,
-				const struct misensor_reg *reglist,
-				int poll)
+				   const struct misensor_reg *reglist,
+				   int poll)
 {
 	const struct misensor_reg *next = reglist;
 	struct mt9m114_write_ctrl ctrl;
@@ -370,7 +373,7 @@ static int mt9m114_write_reg_array(struct i2c_client *client,
 			err = __mt9m114_flush_reg_array(client, &ctrl);
 			err |= misensor_rmw_reg(client,
 						next->length &
-							~MISENSOR_TOK_RMW,
+						~MISENSOR_TOK_RMW,
 						next->reg, next->val,
 						next->val2);
 			if (err) {
@@ -425,14 +428,14 @@ static int mt9m114_wait_state(struct i2c_client *client, int timeout)
 	}
 
 	return -EINVAL;
-
 }
 
 static int mt9m114_set_suspend(struct v4l2_subdev *sd)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
+
 	return mt9m114_write_reg_array(client,
-			mt9m114_standby_reg, POST_POLLING);
+				       mt9m114_standby_reg, POST_POLLING);
 }
 
 static int mt9m114_init_common(struct v4l2_subdev *sd)
@@ -496,7 +499,7 @@ static int power_up(struct v4l2_subdev *sd)
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret;
 
-	if (NULL == dev->platform_data) {
+	if (!dev->platform_data) {
 		dev_err(&client->dev, "no camera_sensor_platform_data");
 		return -ENODEV;
 	}
@@ -538,7 +541,7 @@ static int power_down(struct v4l2_subdev *sd)
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret;
 
-	if (NULL == dev->platform_data) {
+	if (!dev->platform_data) {
 		dev_err(&client->dev, "no camera_sensor_platform_data");
 		return -ENODEV;
 	}
@@ -637,7 +640,7 @@ static int mt9m114_try_res(u32 *w, u32 *h)
 	int idx = 0;
 
 	if ((*w > MT9M114_RES_960P_SIZE_H)
-		|| (*h > MT9M114_RES_960P_SIZE_V)) {
+	    || (*h > MT9M114_RES_960P_SIZE_V)) {
 		*w = MT9M114_RES_960P_SIZE_H;
 		*h = MT9M114_RES_960P_SIZE_V;
 	} else {
@@ -701,27 +704,27 @@ static int mt9m114_res2size(struct v4l2_subdev *sd, int *h_size, int *v_size)
 		return -EINVAL;
 	}
 
-	if (h_size != NULL)
+	if (h_size)
 		*h_size = hsize;
-	if (v_size != NULL)
+	if (v_size)
 		*v_size = vsize;
 
 	return 0;
 }
 
 static int mt9m114_get_intg_factor(struct i2c_client *client,
-				struct camera_mipi_info *info,
-				const struct mt9m114_res_struct *res)
+				   struct camera_mipi_info *info,
+				   const struct mt9m114_res_struct *res)
 {
 	struct atomisp_sensor_mode_data *buf = &info->data;
 	u32 reg_val;
 	int ret;
 
-	if (info == NULL)
+	if (!info)
 		return -EINVAL;
 
 	ret =  mt9m114_read_reg(client, MISENSOR_32BIT,
-					REG_PIXEL_CLK, &reg_val);
+				REG_PIXEL_CLK, &reg_val);
 	if (ret)
 		return ret;
 	buf->vt_pix_clk_freq_mhz = reg_val;
@@ -729,11 +732,11 @@ static int mt9m114_get_intg_factor(struct i2c_client *client,
 	/* get integration time */
 	buf->coarse_integration_time_min = MT9M114_COARSE_INTG_TIME_MIN;
 	buf->coarse_integration_time_max_margin =
-					MT9M114_COARSE_INTG_TIME_MAX_MARGIN;
+	    MT9M114_COARSE_INTG_TIME_MAX_MARGIN;
 
 	buf->fine_integration_time_min = MT9M114_FINE_INTG_TIME_MIN;
 	buf->fine_integration_time_max_margin =
-					MT9M114_FINE_INTG_TIME_MAX_MARGIN;
+	    MT9M114_FINE_INTG_TIME_MAX_MARGIN;
 
 	buf->fine_integration_time_def = MT9M114_FINE_INTG_TIME_MIN;
 
@@ -743,67 +746,68 @@ static int mt9m114_get_intg_factor(struct i2c_client *client,
 
 	/* get the cropping and output resolution to ISP for this mode. */
 	ret =  mt9m114_read_reg(client, MISENSOR_16BIT,
-					REG_H_START, &reg_val);
+				REG_H_START, &reg_val);
 	if (ret)
 		return ret;
 	buf->crop_horizontal_start = reg_val;
 
 	ret =  mt9m114_read_reg(client, MISENSOR_16BIT,
-					REG_V_START, &reg_val);
+				REG_V_START, &reg_val);
 	if (ret)
 		return ret;
 	buf->crop_vertical_start = reg_val;
 
 	ret = mt9m114_read_reg(client, MISENSOR_16BIT,
-					REG_H_END, &reg_val);
+			       REG_H_END, &reg_val);
 	if (ret)
 		return ret;
 	buf->crop_horizontal_end = reg_val;
 
 	ret = mt9m114_read_reg(client, MISENSOR_16BIT,
-					REG_V_END, &reg_val);
+			       REG_V_END, &reg_val);
 	if (ret)
 		return ret;
 	buf->crop_vertical_end = reg_val;
 
 	ret = mt9m114_read_reg(client, MISENSOR_16BIT,
-					REG_WIDTH, &reg_val);
+			       REG_WIDTH, &reg_val);
 	if (ret)
 		return ret;
 	buf->output_width = reg_val;
 
 	ret = mt9m114_read_reg(client, MISENSOR_16BIT,
-					REG_HEIGHT, &reg_val);
+			       REG_HEIGHT, &reg_val);
 	if (ret)
 		return ret;
 	buf->output_height = reg_val;
 
 	ret = mt9m114_read_reg(client, MISENSOR_16BIT,
-					REG_TIMING_HTS, &reg_val);
+			       REG_TIMING_HTS, &reg_val);
 	if (ret)
 		return ret;
 	buf->line_length_pck = reg_val;
 
 	ret = mt9m114_read_reg(client, MISENSOR_16BIT,
-					REG_TIMING_VTS, &reg_val);
+			       REG_TIMING_VTS, &reg_val);
 	if (ret)
 		return ret;
 	buf->frame_length_lines = reg_val;
 
 	buf->binning_factor_x = res->bin_factor_x ?
-					res->bin_factor_x : 1;
+				res->bin_factor_x : 1;
 	buf->binning_factor_y = res->bin_factor_y ?
-					res->bin_factor_y : 1;
+				res->bin_factor_y : 1;
 	return 0;
 }
 
 static int mt9m114_get_fmt(struct v4l2_subdev *sd,
-				struct v4l2_subdev_pad_config *cfg,
-				struct v4l2_subdev_format *format)
+			   struct v4l2_subdev_pad_config *cfg,
+			   struct v4l2_subdev_format *format)
 {
 	struct v4l2_mbus_framefmt *fmt = &format->format;
 	int width, height;
 	int ret;
+
 	if (format->pad)
 		return -EINVAL;
 	fmt->code = MEDIA_BUS_FMT_SGRBG10_1X10;
@@ -830,13 +834,14 @@ static int mt9m114_set_fmt(struct v4l2_subdev *sd,
 	struct camera_mipi_info *mt9m114_info = NULL;
 
 	int ret;
+
 	if (format->pad)
 		return -EINVAL;
 	dev->streamon = 0;
 	dev->first_exp = MT9M114_DEFAULT_FIRST_EXP;
 
 	mt9m114_info = v4l2_get_subdev_hostdata(sd);
-	if (mt9m114_info == NULL)
+	if (!mt9m114_info)
 		return -EINVAL;
 
 	mt9m114_try_res(&width, &height);
@@ -856,18 +861,18 @@ static int mt9m114_set_fmt(struct v4l2_subdev *sd,
 	case MT9M114_RES_736P:
 		ret = mt9m114_write_reg_array(c, mt9m114_736P_init, NO_POLLING);
 		ret += misensor_rmw_reg(c, MISENSOR_16BIT, MISENSOR_READ_MODE,
-				MISENSOR_R_MODE_MASK, MISENSOR_NORMAL_SET);
+					MISENSOR_R_MODE_MASK, MISENSOR_NORMAL_SET);
 		break;
 	case MT9M114_RES_864P:
 		ret = mt9m114_write_reg_array(c, mt9m114_864P_init, NO_POLLING);
 		ret += misensor_rmw_reg(c, MISENSOR_16BIT, MISENSOR_READ_MODE,
-				MISENSOR_R_MODE_MASK, MISENSOR_NORMAL_SET);
+					MISENSOR_R_MODE_MASK, MISENSOR_NORMAL_SET);
 		break;
 	case MT9M114_RES_960P:
 		ret = mt9m114_write_reg_array(c, mt9m114_976P_init, NO_POLLING);
 		/* set sensor read_mode to Normal */
 		ret += misensor_rmw_reg(c, MISENSOR_16BIT, MISENSOR_READ_MODE,
-				MISENSOR_R_MODE_MASK, MISENSOR_NORMAL_SET);
+					MISENSOR_R_MODE_MASK, MISENSOR_NORMAL_SET);
 		break;
 	default:
 		v4l2_err(sd, "set resolution: %d failed!\n", res_index->res);
@@ -916,7 +921,7 @@ static int mt9m114_set_fmt(struct v4l2_subdev *sd,
 		}
 	}
 	ret = mt9m114_get_intg_factor(c, mt9m114_info,
-					&mt9m114_res[res_index->res]);
+				      &mt9m114_res[res_index->res]);
 	if (ret) {
 		dev_err(&c->dev, "failed to get integration_factor\n");
 		return -EINVAL;
@@ -950,8 +955,8 @@ static int mt9m114_g_fnumber(struct v4l2_subdev *sd, s32 *val)
 static int mt9m114_g_fnumber_range(struct v4l2_subdev *sd, s32 *val)
 {
 	*val = (MT9M114_F_NUMBER_DEFAULT_NUM << 24) |
-		(MT9M114_F_NUMBER_DEM << 16) |
-		(MT9M114_F_NUMBER_DEFAULT_NUM << 8) | MT9M114_F_NUMBER_DEM;
+	       (MT9M114_F_NUMBER_DEM << 16) |
+	       (MT9M114_F_NUMBER_DEFAULT_NUM << 8) | MT9M114_F_NUMBER_DEM;
 	return 0;
 }
 
@@ -961,8 +966,9 @@ static int mt9m114_g_hflip(struct v4l2_subdev *sd, s32 *val)
 	struct i2c_client *c = v4l2_get_subdevdata(sd);
 	int ret;
 	u32 data;
+
 	ret = mt9m114_read_reg(c, MISENSOR_16BIT,
-			(u32)MISENSOR_READ_MODE, &data);
+			       (u32)MISENSOR_READ_MODE, &data);
 	if (ret)
 		return ret;
 	*val = !!(data & MISENSOR_HFLIP_MASK);
@@ -977,7 +983,7 @@ static int mt9m114_g_vflip(struct v4l2_subdev *sd, s32 *val)
 	u32 data;
 
 	ret = mt9m114_read_reg(c, MISENSOR_16BIT,
-			(u32)MISENSOR_READ_MODE, &data);
+			       (u32)MISENSOR_READ_MODE, &data);
 	if (ret)
 		return ret;
 	*val = !!(data & MISENSOR_VFLIP_MASK);
@@ -992,16 +998,14 @@ static long mt9m114_s_exposure(struct v4l2_subdev *sd,
 	struct mt9m114_device *dev = to_mt9m114_sensor(sd);
 	int ret = 0;
 	unsigned int coarse_integration = 0;
-	unsigned int fine_integration = 0;
 	unsigned int FLines = 0;
 	unsigned int FrameLengthLines = 0; /* ExposureTime.FrameLengthLines; */
 	unsigned int AnalogGain, DigitalGain;
 	u32 AnalogGainToWrite = 0;
-	u16 exposure_local[3];
 
 	dev_dbg(&client->dev, "%s(0x%X 0x%X 0x%X)\n", __func__,
-		    exposure->integration_time[0], exposure->gain[0],
-		    exposure->gain[1]);
+		exposure->integration_time[0], exposure->gain[0],
+		exposure->gain[1]);
 
 	coarse_integration = exposure->integration_time[0];
 	/* fine_integration = ExposureTime.FineIntegrationTime; */
@@ -1029,14 +1033,11 @@ static long mt9m114_s_exposure(struct v4l2_subdev *sd,
 		return -EINVAL;
 	}
 
-	/* set coarse/fine integration */
-	exposure_local[0] = REG_EXPO_COARSE;
-	exposure_local[1] = (u16)coarse_integration;
-	exposure_local[2] = (u16)fine_integration;
+	/* set coarse integration */
 	/* 3A provide real exposure time.
 		should not translate to any value here. */
 	ret = mt9m114_write_reg(client, MISENSOR_16BIT,
-			REG_EXPO_COARSE, (u16)(coarse_integration));
+				REG_EXPO_COARSE, (u16)(coarse_integration));
 	if (ret) {
 		v4l2_err(client, "%s: fail to set exposure time\n", __func__);
 		return -EINVAL;
@@ -1072,10 +1073,10 @@ static long mt9m114_s_exposure(struct v4l2_subdev *sd,
 		(u16)((DigitalGain << 12) | AnalogGainToWrite); */
 	AnalogGainToWrite = (u16)((DigitalGain << 12) | (u16)AnalogGain);
 	ret = mt9m114_write_reg(client, MISENSOR_16BIT,
-					REG_GAIN, AnalogGainToWrite);
+				REG_GAIN, AnalogGainToWrite);
 	if (ret) {
 		v4l2_err(client, "%s: fail to set AnalogGainToWrite\n",
-			__func__);
+			 __func__);
 		return -EINVAL;
 	}
 
@@ -1084,7 +1085,6 @@ static long mt9m114_s_exposure(struct v4l2_subdev *sd,
 
 static long mt9m114_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
-
 	switch (cmd) {
 	case ATOMISP_IOC_S_EXPOSURE:
 		return mt9m114_s_exposure(sd, arg);
@@ -1112,7 +1112,7 @@ static int mt9m114_g_exposure(struct v4l2_subdev *sd, s32 *value)
 	*value = coarse;
 	return 0;
 }
-#ifndef CSS15
+
 /*
  * This function will return the sensor supported max exposure zone number.
  * the sensor which supports max exposure zone number is 1.
@@ -1135,7 +1135,7 @@ static int mt9m114_s_exposure_metering(struct v4l2_subdev *sd, s32 val)
 	switch (val) {
 	case V4L2_EXPOSURE_METERING_SPOT:
 		ret = mt9m114_write_reg_array(client, mt9m114_exp_average,
-						NO_POLLING);
+					      NO_POLLING);
 		if (ret) {
 			dev_err(&client->dev, "write exp_average reg err.\n");
 			return ret;
@@ -1144,7 +1144,7 @@ static int mt9m114_s_exposure_metering(struct v4l2_subdev *sd, s32 val)
 	case V4L2_EXPOSURE_METERING_CENTER_WEIGHTED:
 	default:
 		ret = mt9m114_write_reg_array(client, mt9m114_exp_center,
-						NO_POLLING);
+					      NO_POLLING);
 		if (ret) {
 			dev_err(&client->dev, "write exp_default reg err");
 			return ret;
@@ -1222,7 +1222,6 @@ static int mt9m114_s_exposure_selection(struct v4l2_subdev *sd,
 
 	return 0;
 }
-#endif
 
 static int mt9m114_g_bin_factor_x(struct v4l2_subdev *sd, s32 *val)
 {
@@ -1309,7 +1308,7 @@ static int mt9m114_g_3a_lock(struct v4l2_subdev *sd, s32 *val)
 {
 	if (aaalock)
 		return V4L2_LOCK_EXPOSURE | V4L2_LOCK_WHITE_BALANCE
-			| V4L2_LOCK_FOCUS;
+		       | V4L2_LOCK_FOCUS;
 	return 0;
 }
 
@@ -1331,11 +1330,9 @@ static int mt9m114_s_ctrl(struct v4l2_ctrl *ctrl)
 			__func__, ctrl->val);
 		ret = mt9m114_t_hflip(&dev->sd, ctrl->val);
 		break;
-#ifndef CSS15
 	case V4L2_CID_EXPOSURE_METERING:
 		ret = mt9m114_s_exposure_metering(&dev->sd, ctrl->val);
 		break;
-#endif
 	case V4L2_CID_EXPOSURE:
 		ret = mt9m114_s_ev(&dev->sd, ctrl->val);
 		break;
@@ -1373,11 +1370,9 @@ static int mt9m114_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_EXPOSURE_ABSOLUTE:
 		ret = mt9m114_g_exposure(&dev->sd, &ctrl->val);
 		break;
-#ifndef CSS15
 	case V4L2_CID_EXPOSURE_ZONE_NUM:
 		ret = mt9m114_g_exposure_zone_num(&dev->sd, &ctrl->val);
 		break;
-#endif
 	case V4L2_CID_BIN_FACTOR_HORZ:
 		ret = mt9m114_g_bin_factor_x(&dev->sd, &ctrl->val);
 		break;
@@ -1404,137 +1399,135 @@ static const struct v4l2_ctrl_ops ctrl_ops = {
 
 static struct v4l2_ctrl_config mt9m114_controls[] = {
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_VFLIP,
-	 .name = "Image v-Flip",
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .min = 0,
-	 .max = 1,
-	 .step = 1,
-	 .def = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_VFLIP,
+		.name = "Image v-Flip",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.min = 0,
+		.max = 1,
+		.step = 1,
+		.def = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_HFLIP,
-	 .name = "Image h-Flip",
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .min = 0,
-	 .max = 1,
-	 .step = 1,
-	 .def = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_HFLIP,
+		.name = "Image h-Flip",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.min = 0,
+		.max = 1,
+		.step = 1,
+		.def = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_FOCAL_ABSOLUTE,
-	 .name = "focal length",
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .min = MT9M114_FOCAL_LENGTH_DEFAULT,
-	 .max = MT9M114_FOCAL_LENGTH_DEFAULT,
-	 .step = 1,
-	 .def = MT9M114_FOCAL_LENGTH_DEFAULT,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_FOCAL_ABSOLUTE,
+		.name = "focal length",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.min = MT9M114_FOCAL_LENGTH_DEFAULT,
+		.max = MT9M114_FOCAL_LENGTH_DEFAULT,
+		.step = 1,
+		.def = MT9M114_FOCAL_LENGTH_DEFAULT,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_FNUMBER_ABSOLUTE,
-	 .name = "f-number",
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .min = MT9M114_F_NUMBER_DEFAULT,
-	 .max = MT9M114_F_NUMBER_DEFAULT,
-	 .step = 1,
-	 .def = MT9M114_F_NUMBER_DEFAULT,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_FNUMBER_ABSOLUTE,
+		.name = "f-number",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.min = MT9M114_F_NUMBER_DEFAULT,
+		.max = MT9M114_F_NUMBER_DEFAULT,
+		.step = 1,
+		.def = MT9M114_F_NUMBER_DEFAULT,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_FNUMBER_RANGE,
-	 .name = "f-number range",
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .min = MT9M114_F_NUMBER_RANGE,
-	 .max = MT9M114_F_NUMBER_RANGE,
-	 .step = 1,
-	 .def = MT9M114_F_NUMBER_RANGE,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_FNUMBER_RANGE,
+		.name = "f-number range",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.min = MT9M114_F_NUMBER_RANGE,
+		.max = MT9M114_F_NUMBER_RANGE,
+		.step = 1,
+		.def = MT9M114_F_NUMBER_RANGE,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_EXPOSURE_ABSOLUTE,
-	 .name = "exposure",
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .min = 0,
-	 .max = 0xffff,
-	 .step = 1,
-	 .def = 0,
-	 .flags = 0,
-	 },
-#ifndef CSS15
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_EXPOSURE_ABSOLUTE,
+		.name = "exposure",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.min = 0,
+		.max = 0xffff,
+		.step = 1,
+		.def = 0,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_EXPOSURE_ZONE_NUM,
-	 .name = "one-time exposure zone number",
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .min = 0,
-	 .max = 0xffff,
-	 .step = 1,
-	 .def = 0,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_EXPOSURE_ZONE_NUM,
+		.name = "one-time exposure zone number",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.min = 0,
+		.max = 0xffff,
+		.step = 1,
+		.def = 0,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_EXPOSURE_METERING,
-	 .name = "metering",
-	 .type = V4L2_CTRL_TYPE_MENU,
-	 .min = 0,
-	 .max = 3,
-	 .step = 0,
-	 .def = 1,
-	 .flags = 0,
-	 },
-#endif
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_EXPOSURE_METERING,
+		.name = "metering",
+		.type = V4L2_CTRL_TYPE_MENU,
+		.min = 0,
+		.max = 3,
+		.step = 0,
+		.def = 1,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_BIN_FACTOR_HORZ,
-	 .name = "horizontal binning factor",
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .min = 0,
-	 .max = MT9M114_BIN_FACTOR_MAX,
-	 .step = 1,
-	 .def = 0,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_BIN_FACTOR_HORZ,
+		.name = "horizontal binning factor",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.min = 0,
+		.max = MT9M114_BIN_FACTOR_MAX,
+		.step = 1,
+		.def = 0,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_BIN_FACTOR_VERT,
-	 .name = "vertical binning factor",
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .min = 0,
-	 .max = MT9M114_BIN_FACTOR_MAX,
-	 .step = 1,
-	 .def = 0,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_BIN_FACTOR_VERT,
+		.name = "vertical binning factor",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.min = 0,
+		.max = MT9M114_BIN_FACTOR_MAX,
+		.step = 1,
+		.def = 0,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_EXPOSURE,
-	 .name = "exposure biasx",
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .min = -2,
-	 .max = 2,
-	 .step = 1,
-	 .def = 0,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_EXPOSURE,
+		.name = "exposure biasx",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.min = -2,
+		.max = 2,
+		.step = 1,
+		.def = 0,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_3A_LOCK,
-	 .name = "3a lock",
-	 .type = V4L2_CTRL_TYPE_BITMASK,
-	 .min = 0,
-	 .max = V4L2_LOCK_EXPOSURE | V4L2_LOCK_WHITE_BALANCE | V4L2_LOCK_FOCUS,
-	 .step = 1,
-	 .def = 0,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_3A_LOCK,
+		.name = "3a lock",
+		.type = V4L2_CTRL_TYPE_BITMASK,
+		.min = 0,
+		.max = V4L2_LOCK_EXPOSURE | V4L2_LOCK_WHITE_BALANCE | V4L2_LOCK_FOCUS,
+		.step = 1,
+		.def = 0,
+		.flags = 0,
+	},
 };
 
 static int mt9m114_detect(struct mt9m114_device *dev, struct i2c_client *client)
@@ -1565,7 +1558,7 @@ mt9m114_s_config(struct v4l2_subdev *sd, int irq, void *platform_data)
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret;
 
-	if (NULL == platform_data)
+	if (!platform_data)
 		return -ENODEV;
 
 	dev->platform_data =
@@ -1684,14 +1677,9 @@ static int mt9m114_t_vflip(struct v4l2_subdev *sd, int value)
 
 	return !!err;
 }
-static int mt9m114_s_parm(struct v4l2_subdev *sd,
-			struct v4l2_streamparm *param)
-{
-	return 0;
-}
 
 static int mt9m114_g_frame_interval(struct v4l2_subdev *sd,
-				   struct v4l2_subdev_frame_interval *interval)
+				    struct v4l2_subdev_frame_interval *interval)
 {
 	struct mt9m114_device *dev = to_mt9m114_sensor(sd);
 
@@ -1710,7 +1698,7 @@ static int mt9m114_s_stream(struct v4l2_subdev *sd, int enable)
 
 	if (enable) {
 		ret = mt9m114_write_reg_array(c, mt9m114_chgstat_reg,
-					POST_POLLING);
+					      POST_POLLING);
 		if (ret < 0)
 			return ret;
 
@@ -1745,7 +1733,6 @@ static int mt9m114_enum_frame_size(struct v4l2_subdev *sd,
 				   struct v4l2_subdev_pad_config *cfg,
 				   struct v4l2_subdev_frame_size_enum *fse)
 {
-
 	unsigned int index = fse->index;
 
 	if (index >= N_RES)
@@ -1764,7 +1751,7 @@ static int mt9m114_g_skip_frames(struct v4l2_subdev *sd, u32 *frames)
 	int index;
 	struct mt9m114_device *snr = to_mt9m114_sensor(sd);
 
-	if (frames == NULL)
+	if (!frames)
 		return -EINVAL;
 
 	for (index = 0; index < N_RES; index++) {
@@ -1781,7 +1768,6 @@ static int mt9m114_g_skip_frames(struct v4l2_subdev *sd, u32 *frames)
 }
 
 static const struct v4l2_subdev_video_ops mt9m114_video_ops = {
-	.s_parm = mt9m114_s_parm,
 	.s_stream = mt9m114_s_stream,
 	.g_frame_interval = mt9m114_g_frame_interval,
 };
@@ -1801,9 +1787,7 @@ static const struct v4l2_subdev_pad_ops mt9m114_pad_ops = {
 	.enum_frame_size = mt9m114_enum_frame_size,
 	.get_fmt = mt9m114_get_fmt,
 	.set_fmt = mt9m114_set_fmt,
-#ifndef CSS15
 	.set_selection = mt9m114_s_exposure_selection,
-#endif
 };
 
 static const struct v4l2_subdev_ops mt9m114_ops = {
@@ -1811,10 +1795,6 @@ static const struct v4l2_subdev_ops mt9m114_ops = {
 	.video = &mt9m114_video_ops,
 	.pad = &mt9m114_pad_ops,
 	.sensor = &mt9m114_sensor_ops,
-};
-
-static const struct media_entity_operations mt9m114_entity_ops = {
-	.link_setup = NULL,
 };
 
 static int mt9m114_remove(struct i2c_client *client)

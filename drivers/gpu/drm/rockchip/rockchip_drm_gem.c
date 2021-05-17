@@ -1,22 +1,18 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) Fuzhou Rockchip Electronics Co.Ltd
  * Author:Mark Yao <mark.yao@rock-chips.com>
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
-#include <drm/drm.h>
-#include <drm/drmP.h>
-#include <drm/drm_gem.h>
-#include <drm/drm_vma_manager.h>
+#include <linux/dma-buf.h>
 #include <linux/iommu.h>
+#include <linux/vmalloc.h>
+
+#include <drm/drm.h>
+#include <drm/drm_gem.h>
+#include <drm/drm_gem_cma_helper.h>
+#include <drm/drm_prime.h>
+#include <drm/drm_vma_manager.h>
 
 #include "rockchip_drm_drv.h"
 #include "rockchip_drm_gem.h"
@@ -41,8 +37,8 @@ static int rockchip_gem_iommu_map(struct rockchip_gem_object *rk_obj)
 
 	rk_obj->dma_addr = rk_obj->mm.start;
 
-	ret = iommu_map_sg(private->domain, rk_obj->dma_addr, rk_obj->sgt->sgl,
-			   rk_obj->sgt->nents, prot);
+	ret = iommu_map_sgtable(private->domain, rk_obj->dma_addr, rk_obj->sgt,
+				prot);
 	if (ret < rk_obj->base.size) {
 		DRM_ERROR("failed to map buffer: size=%zd request_size=%zd\n",
 			  ret, rk_obj->base.size);
@@ -90,7 +86,8 @@ static int rockchip_gem_get_pages(struct rockchip_gem_object *rk_obj)
 
 	rk_obj->num_pages = rk_obj->base.size >> PAGE_SHIFT;
 
-	rk_obj->sgt = drm_prime_pages_to_sg(rk_obj->pages, rk_obj->num_pages);
+	rk_obj->sgt = drm_prime_pages_to_sg(rk_obj->base.dev,
+					    rk_obj->pages, rk_obj->num_pages);
 	if (IS_ERR(rk_obj->sgt)) {
 		ret = PTR_ERR(rk_obj->sgt);
 		goto err_put_pages;
@@ -103,11 +100,10 @@ static int rockchip_gem_get_pages(struct rockchip_gem_object *rk_obj)
 	 * TODO: Replace this by drm_clflush_sg() once it can be implemented
 	 * without relying on symbols that are not exported.
 	 */
-	for_each_sg(rk_obj->sgt->sgl, s, rk_obj->sgt->nents, i)
+	for_each_sgtable_sg(rk_obj->sgt, s, i)
 		sg_dma_address(s) = sg_phys(s);
 
-	dma_sync_sg_for_device(drm->dev, rk_obj->sgt->sgl, rk_obj->sgt->nents,
-			       DMA_TO_DEVICE);
+	dma_sync_sgtable_for_device(drm->dev, rk_obj->sgt, DMA_TO_DEVICE);
 
 	return 0;
 
@@ -219,26 +215,13 @@ static int rockchip_drm_gem_object_mmap_iommu(struct drm_gem_object *obj,
 					      struct vm_area_struct *vma)
 {
 	struct rockchip_gem_object *rk_obj = to_rockchip_obj(obj);
-	unsigned int i, count = obj->size >> PAGE_SHIFT;
+	unsigned int count = obj->size >> PAGE_SHIFT;
 	unsigned long user_count = vma_pages(vma);
-	unsigned long uaddr = vma->vm_start;
-	unsigned long offset = vma->vm_pgoff;
-	unsigned long end = user_count + offset;
-	int ret;
 
 	if (user_count == 0)
 		return -ENXIO;
-	if (end > count)
-		return -ENXIO;
 
-	for (i = offset; i < end; i++) {
-		ret = vm_insert_page(vma, uaddr, rk_obj->pages[i]);
-		if (ret)
-			return ret;
-		uaddr += PAGE_SIZE;
-	}
-
-	return 0;
+	return vm_map_pages(vma, rk_obj->pages, count);
 }
 
 static int rockchip_drm_gem_object_mmap_dma(struct drm_gem_object *obj,
@@ -262,7 +245,6 @@ static int rockchip_drm_gem_object_mmap(struct drm_gem_object *obj,
 	 * VM_PFNMAP flag that was set by drm_gem_mmap_obj()/drm_gem_mmap().
 	 */
 	vma->vm_flags &= ~VM_PFNMAP;
-	vma->vm_pgoff = 0;
 
 	if (rk_obj->pages)
 		ret = rockchip_drm_gem_object_mmap_iommu(obj, vma);
@@ -297,6 +279,12 @@ int rockchip_gem_mmap(struct file *filp, struct vm_area_struct *vma)
 	if (ret)
 		return ret;
 
+	/*
+	 * Set vm_pgoff (used as a fake buffer offset by DRM) to 0 and map the
+	 * whole buffer from the start.
+	 */
+	vma->vm_pgoff = 0;
+
 	obj = vma->vm_private_data;
 
 	return rockchip_drm_gem_object_mmap(obj, vma);
@@ -308,13 +296,19 @@ static void rockchip_gem_release_object(struct rockchip_gem_object *rk_obj)
 	kfree(rk_obj);
 }
 
-struct rockchip_gem_object *
-	rockchip_gem_create_object(struct drm_device *drm, unsigned int size,
-				   bool alloc_kmap)
+static const struct drm_gem_object_funcs rockchip_gem_object_funcs = {
+	.free = rockchip_gem_free_object,
+	.get_sg_table = rockchip_gem_prime_get_sg_table,
+	.vmap = rockchip_gem_prime_vmap,
+	.vunmap	= rockchip_gem_prime_vunmap,
+	.vm_ops = &drm_gem_cma_vm_ops,
+};
+
+static struct rockchip_gem_object *
+	rockchip_gem_alloc_object(struct drm_device *drm, unsigned int size)
 {
 	struct rockchip_gem_object *rk_obj;
 	struct drm_gem_object *obj;
-	int ret;
 
 	size = round_up(size, PAGE_SIZE);
 
@@ -324,7 +318,23 @@ struct rockchip_gem_object *
 
 	obj = &rk_obj->base;
 
+	obj->funcs = &rockchip_gem_object_funcs;
+
 	drm_gem_object_init(drm, obj, size);
+
+	return rk_obj;
+}
+
+struct rockchip_gem_object *
+rockchip_gem_create_object(struct drm_device *drm, unsigned int size,
+			   bool alloc_kmap)
+{
+	struct rockchip_gem_object *rk_obj;
+	int ret;
+
+	rk_obj = rockchip_gem_alloc_object(drm, size);
+	if (IS_ERR(rk_obj))
+		return rk_obj;
 
 	ret = rockchip_gem_alloc_buf(rk_obj, alloc_kmap);
 	if (ret)
@@ -338,16 +348,26 @@ err_free_rk_obj:
 }
 
 /*
- * rockchip_gem_free_object - (struct drm_driver)->gem_free_object callback
- * function
+ * rockchip_gem_free_object - (struct drm_gem_object_funcs)->free
+ * callback function
  */
 void rockchip_gem_free_object(struct drm_gem_object *obj)
 {
-	struct rockchip_gem_object *rk_obj;
+	struct drm_device *drm = obj->dev;
+	struct rockchip_drm_private *private = drm->dev_private;
+	struct rockchip_gem_object *rk_obj = to_rockchip_obj(obj);
 
-	rk_obj = to_rockchip_obj(obj);
-
-	rockchip_gem_free_buf(rk_obj);
+	if (obj->import_attach) {
+		if (private->domain) {
+			rockchip_gem_iommu_unmap(rk_obj);
+		} else {
+			dma_unmap_sgtable(drm->dev, rk_obj->sgt,
+					  DMA_BIDIRECTIONAL, 0);
+		}
+		drm_prime_gem_destroy(obj, rk_obj->sgt);
+	} else {
+		rockchip_gem_free_buf(rk_obj);
+	}
 
 	rockchip_gem_release_object(rk_obj);
 }
@@ -383,7 +403,7 @@ rockchip_gem_create_with_handle(struct drm_file *file_priv,
 		goto err_handle_create;
 
 	/* drop reference from allocate - handle holds it now. */
-	drm_gem_object_put_unlocked(obj);
+	drm_gem_object_put(obj);
 
 	return rk_obj;
 
@@ -433,7 +453,7 @@ struct sg_table *rockchip_gem_prime_get_sg_table(struct drm_gem_object *obj)
 	int ret;
 
 	if (rk_obj->pages)
-		return drm_prime_pages_to_sg(rk_obj->pages, rk_obj->num_pages);
+		return drm_prime_pages_to_sg(obj->dev, rk_obj->pages, rk_obj->num_pages);
 
 	sgt = kzalloc(sizeof(*sgt), GFP_KERNEL);
 	if (!sgt)
@@ -451,26 +471,93 @@ struct sg_table *rockchip_gem_prime_get_sg_table(struct drm_gem_object *obj)
 	return sgt;
 }
 
-void *rockchip_gem_prime_vmap(struct drm_gem_object *obj)
+static int
+rockchip_gem_iommu_map_sg(struct drm_device *drm,
+			  struct dma_buf_attachment *attach,
+			  struct sg_table *sg,
+			  struct rockchip_gem_object *rk_obj)
 {
-	struct rockchip_gem_object *rk_obj = to_rockchip_obj(obj);
-
-	if (rk_obj->pages)
-		return vmap(rk_obj->pages, rk_obj->num_pages, VM_MAP,
-			    pgprot_writecombine(PAGE_KERNEL));
-
-	if (rk_obj->dma_attrs & DMA_ATTR_NO_KERNEL_MAPPING)
-		return NULL;
-
-	return rk_obj->kvaddr;
+	rk_obj->sgt = sg;
+	return rockchip_gem_iommu_map(rk_obj);
 }
 
-void rockchip_gem_prime_vunmap(struct drm_gem_object *obj, void *vaddr)
+static int
+rockchip_gem_dma_map_sg(struct drm_device *drm,
+			struct dma_buf_attachment *attach,
+			struct sg_table *sg,
+			struct rockchip_gem_object *rk_obj)
+{
+	int err = dma_map_sgtable(drm->dev, sg, DMA_BIDIRECTIONAL, 0);
+	if (err)
+		return err;
+
+	if (drm_prime_get_contiguous_size(sg) < attach->dmabuf->size) {
+		DRM_ERROR("failed to map sg_table to contiguous linear address.\n");
+		dma_unmap_sgtable(drm->dev, sg, DMA_BIDIRECTIONAL, 0);
+		return -EINVAL;
+	}
+
+	rk_obj->dma_addr = sg_dma_address(sg->sgl);
+	rk_obj->sgt = sg;
+	return 0;
+}
+
+struct drm_gem_object *
+rockchip_gem_prime_import_sg_table(struct drm_device *drm,
+				   struct dma_buf_attachment *attach,
+				   struct sg_table *sg)
+{
+	struct rockchip_drm_private *private = drm->dev_private;
+	struct rockchip_gem_object *rk_obj;
+	int ret;
+
+	rk_obj = rockchip_gem_alloc_object(drm, attach->dmabuf->size);
+	if (IS_ERR(rk_obj))
+		return ERR_CAST(rk_obj);
+
+	if (private->domain)
+		ret = rockchip_gem_iommu_map_sg(drm, attach, sg, rk_obj);
+	else
+		ret = rockchip_gem_dma_map_sg(drm, attach, sg, rk_obj);
+
+	if (ret < 0) {
+		DRM_ERROR("failed to import sg table: %d\n", ret);
+		goto err_free_rk_obj;
+	}
+
+	return &rk_obj->base;
+
+err_free_rk_obj:
+	rockchip_gem_release_object(rk_obj);
+	return ERR_PTR(ret);
+}
+
+int rockchip_gem_prime_vmap(struct drm_gem_object *obj, struct dma_buf_map *map)
 {
 	struct rockchip_gem_object *rk_obj = to_rockchip_obj(obj);
 
 	if (rk_obj->pages) {
-		vunmap(vaddr);
+		void *vaddr = vmap(rk_obj->pages, rk_obj->num_pages, VM_MAP,
+				  pgprot_writecombine(PAGE_KERNEL));
+		if (!vaddr)
+			return -ENOMEM;
+		dma_buf_map_set_vaddr(map, vaddr);
+		return 0;
+	}
+
+	if (rk_obj->dma_attrs & DMA_ATTR_NO_KERNEL_MAPPING)
+		return -ENOMEM;
+	dma_buf_map_set_vaddr(map, rk_obj->kvaddr);
+
+	return 0;
+}
+
+void rockchip_gem_prime_vunmap(struct drm_gem_object *obj, struct dma_buf_map *map)
+{
+	struct rockchip_gem_object *rk_obj = to_rockchip_obj(obj);
+
+	if (rk_obj->pages) {
+		vunmap(map->vaddr);
 		return;
 	}
 

@@ -7,6 +7,8 @@
  * Copyright (C) 2004 Sun Microsystems Inc.
  * Copyright (C) 2007-2016 Broadcom Corporation.
  * Copyright (C) 2016-2017 Broadcom Limited.
+ * Copyright (C) 2018 Broadcom. All Rights Reserved. The term "Broadcom"
+ * refers to Broadcom Inc. and/or its subsidiaries.
  */
 
 #ifndef _T3_H
@@ -2099,6 +2101,7 @@
 /* Hardware Legacy NVRAM layout */
 #define TG3_NVM_VPD_OFF			0x100
 #define TG3_NVM_VPD_LEN			256
+#define TG3_NVM_PCI_VPD_MAX_LEN		512
 
 /* Hardware Selfboot NVRAM layout */
 #define TG3_NVM_HWSB_CFG1		0x00000004
@@ -2845,7 +2848,7 @@ struct tg3_ocir {
 	u32				port1_flags;
 	u32				port2_flags;
 	u32				port3_flags;
-	u32				reserved2[1];
+	u32				reserved2;
 };
 
 
@@ -2871,7 +2874,7 @@ struct tg3_tx_ring_info {
 struct tg3_link_config {
 	/* Describes what we're trying to get. */
 	u32				advertising;
-	u16				speed;
+	u32				speed;
 	u8				duplex;
 	u8				autoneg;
 	u8				flowctrl;
@@ -2880,7 +2883,7 @@ struct tg3_link_config {
 	u8				active_flowctrl;
 
 	u8				active_duplex;
-	u16				active_speed;
+	u32				active_speed;
 	u32				rmt_adv;
 };
 

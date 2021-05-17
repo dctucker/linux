@@ -48,7 +48,7 @@ struct ext4_xattr_entry {
 	__le32	e_value_inum;	/* inode in which the value is stored */
 	__le32	e_value_size;	/* size of attribute value */
 	__le32	e_hash;		/* hash value of name and value */
-	char	e_name[0];	/* attribute name */
+	char	e_name[];	/* attribute name */
 };
 
 #define EXT4_XATTR_PAD_BITS		2
@@ -69,6 +69,17 @@ struct ext4_xattr_entry {
 		EXT4_GOOD_OLD_INODE_SIZE + \
 		EXT4_I(inode)->i_extra_isize))
 #define IFIRST(hdr) ((struct ext4_xattr_entry *)((hdr)+1))
+
+/*
+ * XATTR_SIZE_MAX is currently 64k, but for the purposes of checking
+ * for file system consistency errors, we use a somewhat bigger value.
+ * This allows XATTR_SIZE_MAX to grow in the future, but by using this
+ * instead of INT_MAX for certain consistency checks, we don't need to
+ * worry about arithmetic overflows.  (Actually XATTR_SIZE_MAX is
+ * defined in include/uapi/linux/limits.h, so changing it is going
+ * not going to be trivial....)
+ */
+#define EXT4_XATTR_SIZE_MAX (1 << 24)
 
 /*
  * The minimum size of EA value when you start storing it in an external inode
@@ -107,12 +118,13 @@ struct ext4_xattr_ibody_find {
 
 struct ext4_xattr_inode_array {
 	unsigned int count;		/* # of used items in the array */
-	struct inode *inodes[0];
+	struct inode *inodes[];
 };
 
 extern const struct xattr_handler ext4_xattr_user_handler;
 extern const struct xattr_handler ext4_xattr_trusted_handler;
 extern const struct xattr_handler ext4_xattr_security_handler;
+extern const struct xattr_handler ext4_xattr_hurd_handler;
 
 #define EXT4_XATTR_NAME_ENCRYPTION_CONTEXT "c"
 

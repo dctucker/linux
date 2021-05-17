@@ -1,18 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /******************************************************************************
  *
  * Copyright(c) 2007 - 2012 Realtek Corporation. All rights reserved.
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
  ******************************************************************************/
-
 
 /*
  * Automatically generated C config: don't edit
@@ -21,7 +12,6 @@
 /*
  * Functions Config
  */
-/* define DEBUG_CFG80211 */
 
 #ifndef CONFIG_WIRELESS_EXT
 #error CONFIG_WIRELESS_EXT needs to be enabled for this driver to work
@@ -49,25 +39,12 @@
  * Platform dependent
  */
 #define WAKEUP_GPIO_IDX	12	/* WIFI Chip Side */
-#ifdef CONFIG_WOWLAN
-#define CONFIG_GTK_OL
-#endif /* CONFIG_WOWLAN */
 
 /*
  * Debug Related Config
  */
-#undef DEBUG
 
-#ifdef DEBUG
-#define DBG	1	/*  for ODM & BTCOEX debug */
-/*#define DEBUG_RTL871X */
-#else /*  !DEBUG */
 #define DBG	0	/*  for ODM & BTCOEX debug */
-#endif /*  !DEBUG */
-
-#ifdef CONFIG_PROC_FS
-#define PROC_DEBUG
-#endif
 
 /* define DBG_XMIT_BUF */
 /* define DBG_XMIT_BUF_EXT */

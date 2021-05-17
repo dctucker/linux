@@ -2,7 +2,7 @@
 /*
  * Texas Instruments PCM186x Universal Audio ADC - I2C
  *
- * Copyright (C) 2015-2017 Texas Instruments Incorporated - http://www.ti.com
+ * Copyright (C) 2015-2017 Texas Instruments Incorporated - https://www.ti.com
  *	Andreas Dannenberg <dannenberg@ti.com>
  *	Andrew F. Davis <afd@ti.com>
  */
@@ -36,13 +36,6 @@ static int pcm186x_i2c_probe(struct i2c_client *i2c,
 	return pcm186x_probe(&i2c->dev, type, irq, regmap);
 }
 
-static int pcm186x_i2c_remove(struct i2c_client *i2c)
-{
-	pcm186x_remove(&i2c->dev);
-
-	return 0;
-}
-
 static const struct i2c_device_id pcm186x_i2c_id[] = {
 	{ "pcm1862", PCM1862 },
 	{ "pcm1863", PCM1863 },
@@ -54,7 +47,6 @@ MODULE_DEVICE_TABLE(i2c, pcm186x_i2c_id);
 
 static struct i2c_driver pcm186x_i2c_driver = {
 	.probe		= pcm186x_i2c_probe,
-	.remove		= pcm186x_i2c_remove,
 	.id_table	= pcm186x_i2c_id,
 	.driver		= {
 		.name	= "pcm186x",

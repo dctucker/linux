@@ -1,15 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /******************************************************************************
  *
  * Copyright(c) 2007 - 2011 Realtek Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
  *
  *****************************************************************************/
 #ifndef	__ODMNOISEMONITOR_H__
@@ -32,10 +24,10 @@ struct noise_level {
 };
 
 
-typedef struct _ODM_NOISE_MONITOR_ {
+struct odm_noise_monitor {
 	s8 noise[MAX_RF_PATH];
 	s16 noise_all;
-} ODM_NOISE_MONITOR;
+};
 
 s16 ODM_InbandNoise_Monitor(
 	void *pDM_VOID,

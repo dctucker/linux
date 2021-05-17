@@ -8,6 +8,7 @@
 #include <linux/termios.h>
 #include <linux/tty.h>
 #include <linux/export.h>
+#include "tty.h"
 
 
 /*
@@ -17,32 +18,28 @@
  * include/asm/termbits.h file.
  */
 static const speed_t baud_table[] = {
-	0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
-	9600, 19200, 38400, 57600, 115200, 230400, 460800,
+	0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400,
+	4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800,
 #ifdef __sparc__
-	76800, 153600, 307200, 614400, 921600
+	76800, 153600, 307200, 614400, 921600, 500000, 576000,
+	1000000, 1152000, 1500000, 2000000
 #else
 	500000, 576000, 921600, 1000000, 1152000, 1500000, 2000000,
 	2500000, 3000000, 3500000, 4000000
 #endif
 };
 
-#ifndef __sparc__
 static const tcflag_t baud_bits[] = {
-	B0, B50, B75, B110, B134, B150, B200, B300, B600,
-	B1200, B1800, B2400, B4800, B9600, B19200, B38400,
-	B57600, B115200, B230400, B460800, B500000, B576000,
-	B921600, B1000000, B1152000, B1500000, B2000000, B2500000,
-	B3000000, B3500000, B4000000
-};
+	B0, B50, B75, B110, B134, B150, B200, B300, B600, B1200, B1800, B2400,
+	B4800, B9600, B19200, B38400, B57600, B115200, B230400, B460800,
+#ifdef __sparc__
+	B76800, B153600, B307200, B614400, B921600, B500000, B576000,
+	B1000000, B1152000, B1500000, B2000000
 #else
-static const tcflag_t baud_bits[] = {
-	B0, B50, B75, B110, B134, B150, B200, B300, B600,
-	B1200, B1800, B2400, B4800, B9600, B19200, B38400,
-	B57600, B115200, B230400, B460800, B76800, B153600,
-	B307200, B614400, B921600
-};
+	B500000, B576000, B921600, B1000000, B1152000, B1500000, B2000000,
+	B2500000, B3000000, B3500000, B4000000
 #endif
+};
 
 static int n_baud_table = ARRAY_SIZE(baud_table);
 
@@ -77,7 +74,7 @@ speed_t tty_termios_baud_rate(struct ktermios *termios)
 		else
 			cbaud += 15;
 	}
-	return baud_table[cbaud];
+	return cbaud >= n_baud_table ? 0 : baud_table[cbaud];
 }
 EXPORT_SYMBOL(tty_termios_baud_rate);
 
@@ -100,11 +97,11 @@ speed_t tty_termios_input_baud_rate(struct ktermios *termios)
 
 	if (cbaud == B0)
 		return tty_termios_baud_rate(termios);
-
+#ifdef BOTHER
 	/* Magic token for arbitrary speed via c_ispeed*/
 	if (cbaud == BOTHER)
 		return termios->c_ispeed;
-
+#endif
 	if (cbaud & CBAUDEX) {
 		cbaud &= ~CBAUDEX;
 
@@ -113,18 +110,18 @@ speed_t tty_termios_input_baud_rate(struct ktermios *termios)
 		else
 			cbaud += 15;
 	}
-	return baud_table[cbaud];
-#else
+	return cbaud >= n_baud_table ? 0 : baud_table[cbaud];
+#else	/* IBSHIFT */
 	return tty_termios_baud_rate(termios);
-#endif
+#endif	/* IBSHIFT */
 }
 EXPORT_SYMBOL(tty_termios_input_baud_rate);
 
 /**
  *	tty_termios_encode_baud_rate
  *	@termios: ktermios structure holding user requested state
- *	@ispeed: input speed
- *	@ospeed: output speed
+ *	@ibaud: input speed
+ *	@obaud: output speed
  *
  *	Encode the speeds set into the passed termios structure. This is
  *	used as a library helper for drivers so that they can report back
@@ -156,19 +153,27 @@ void tty_termios_encode_baud_rate(struct ktermios *termios,
 	termios->c_ispeed = ibaud;
 	termios->c_ospeed = obaud;
 
+#ifdef IBSHIFT
+	if ((termios->c_cflag >> IBSHIFT) & CBAUD)
+		ibinput = 1;	/* An input speed was specified */
+#endif
 #ifdef BOTHER
 	/* If the user asked for a precise weird speed give a precise weird
 	   answer. If they asked for a Bfoo speed they may have problems
 	   digesting non-exact replies so fuzz a bit */
 
-	if ((termios->c_cflag & CBAUD) == BOTHER)
+	if ((termios->c_cflag & CBAUD) == BOTHER) {
 		oclose = 0;
+		if (!ibinput)
+			iclose = 0;
+	}
 	if (((termios->c_cflag >> IBSHIFT) & CBAUD) == BOTHER)
 		iclose = 0;
-	if ((termios->c_cflag >> IBSHIFT) & CBAUD)
-		ibinput = 1;	/* An input speed was specified */
 #endif
 	termios->c_cflag &= ~CBAUD;
+#ifdef IBSHIFT
+	termios->c_cflag &= ~(CBAUD << IBSHIFT);
+#endif
 
 	/*
 	 *	Our goal is to find a close match to the standard baud rate
@@ -218,8 +223,9 @@ EXPORT_SYMBOL_GPL(tty_termios_encode_baud_rate);
 
 /**
  *	tty_encode_baud_rate		-	set baud rate of the tty
+ *	@tty:   terminal device
  *	@ibaud: input baud rate
- *	@obad: output baud rate
+ *	@obaud: output baud rate
  *
  *	Update the current termios data for the tty with the new speed
  *	settings. The caller must hold the termios_rwsem for the tty in

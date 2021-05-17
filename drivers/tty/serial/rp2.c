@@ -424,9 +424,7 @@ static void rp2_rx_chars(struct rp2_uart_port *up)
 		up->port.icount.rx++;
 	}
 
-	spin_unlock(&up->port.lock);
 	tty_flip_buffer_push(port);
-	spin_lock(&up->port.lock);
 }
 
 static void rp2_tx_chars(struct rp2_uart_port *up)
@@ -774,7 +772,7 @@ static int rp2_probe(struct pci_dev *pdev,
 
 	rp2_init_card(card);
 
-	ports = devm_kzalloc(&pdev->dev, sizeof(*ports) * card->n_ports,
+	ports = devm_kcalloc(&pdev->dev, card->n_ports, sizeof(*ports),
 			     GFP_KERNEL);
 	if (!ports)
 		return -ENOMEM;

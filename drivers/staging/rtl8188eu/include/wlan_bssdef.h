@@ -1,20 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /******************************************************************************
  *
  * Copyright(c) 2007 - 2011 Realtek Corporation. All rights reserved.
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
  ******************************************************************************/
 #ifndef __WLAN_BSSDEF_H__
 #define __WLAN_BSSDEF_H__
-
 
 #define MAX_IE_SZ			768
 
@@ -25,8 +16,8 @@
 #define NDIS_802_11_RSSI long           /*  in dBm */
 
 struct ndis_802_11_ssid {
-	u32  SsidLength;
-	u8  Ssid[32];
+	u32  ssid_length;
+	u8  ssid[32];
 };
 
 enum NDIS_802_11_NETWORK_TYPE {
@@ -70,12 +61,10 @@ struct ndis_802_11_fixed_ie {
 	u16  Capabilities;
 };
 
-
-
 struct ndis_802_11_var_ie {
 	u8  ElementID;
 	u8  Length;
-	u8  data[1];
+	u8  data[];
 };
 
 /*
@@ -83,9 +72,9 @@ struct ndis_802_11_var_ie {
  *	[ETH_ALEN] + 2 + sizeof (struct ndis_802_11_ssid) + sizeof (u32)
  *	+ sizeof (NDIS_802_11_RSSI) + sizeof (enum NDIS_802_11_NETWORK_TYPE)
  *	+ sizeof (struct ndis_802_11_config)
- *	+ NDIS_802_11_LENGTH_RATES_EX + IELength
+ *	+ NDIS_802_11_LENGTH_RATES_EX + ie_length
  *
- * Except the IELength, all other fields are fixed length.
+ * Except the ie_length, all other fields are fixed length.
  * Therefore, we can define a macro to represent the partial sum.
  */
 
@@ -157,7 +146,7 @@ enum ndis_802_11_status_type {
 #define MIC_CHECK_TIME	60000000
 
 #ifndef Ndis802_11APMode
-#define Ndis802_11APMode (Ndis802_11InfrastructureMax+1)
+#define Ndis802_11APMode (Ndis802_11InfrastructureMax + 1)
 #endif
 
 struct wlan_phy_info {
@@ -188,7 +177,7 @@ struct wlan_bssid_ex {
 	u32  Length;
 	unsigned char MacAddress[ETH_ALEN];
 	u8  Reserved[2];/* 0]: IS beacon frame */
-	struct ndis_802_11_ssid  Ssid;
+	struct ndis_802_11_ssid  ssid;
 	u32  Privacy;
 	NDIS_802_11_RSSI  Rssi;/* in dBM,raw data ,get from PHY) */
 	enum  NDIS_802_11_NETWORK_TYPE  NetworkTypeInUse;
@@ -196,15 +185,15 @@ struct wlan_bssid_ex {
 	enum ndis_802_11_network_infra  InfrastructureMode;
 	unsigned char SupportedRates[NDIS_802_11_LENGTH_RATES_EX];
 	struct wlan_phy_info	PhyInfo;
-	u32  IELength;
-	u8  IEs[MAX_IE_SZ];	/* timestamp, beacon interval, and
+	u32  ie_length;
+	u8  ies[MAX_IE_SZ];	/* timestamp, beacon interval, and
 				 * capability information)
 				 */
 } __packed;
 
 static inline uint get_wlan_bssid_ex_sz(struct wlan_bssid_ex *bss)
 {
-	return sizeof(struct wlan_bssid_ex) - MAX_IE_SZ + bss->IELength;
+	return sizeof(struct wlan_bssid_ex) - MAX_IE_SZ + bss->ie_length;
 }
 
 struct	wlan_network {

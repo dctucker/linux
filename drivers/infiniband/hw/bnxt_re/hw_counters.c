@@ -68,11 +68,13 @@ static const char * const bnxt_re_stat_name[] = {
 	[BNXT_RE_TX_PKTS]		=  "tx_pkts",
 	[BNXT_RE_TX_BYTES]		=  "tx_bytes",
 	[BNXT_RE_RECOVERABLE_ERRORS]	=  "recoverable_errors",
+	[BNXT_RE_RX_DROPS]		=  "rx_roce_drops",
+	[BNXT_RE_RX_DISCARDS]		=  "rx_roce_discards",
 	[BNXT_RE_TO_RETRANSMITS]        = "to_retransmits",
 	[BNXT_RE_SEQ_ERR_NAKS_RCVD]     = "seq_err_naks_rcvd",
 	[BNXT_RE_MAX_RETRY_EXCEEDED]    = "max_retry_exceeded",
 	[BNXT_RE_RNR_NAKS_RCVD]         = "rnr_naks_rcvd",
-	[BNXT_RE_MISSING_RESP]          = "missin_resp",
+	[BNXT_RE_MISSING_RESP]          = "missing_resp",
 	[BNXT_RE_UNRECOVERABLE_ERR]     = "unrecoverable_err",
 	[BNXT_RE_BAD_RESP_ERR]          = "bad_resp_err",
 	[BNXT_RE_LOCAL_QP_OP_ERR]       = "local_qp_op_err",
@@ -106,12 +108,13 @@ static const char * const bnxt_re_stat_name[] = {
 	[BNXT_RE_RES_CQ_LOAD_ERR]       = "res_cq_load_err",
 	[BNXT_RE_RES_SRQ_LOAD_ERR]      = "res_srq_load_err",
 	[BNXT_RE_RES_TX_PCI_ERR]        = "res_tx_pci_err",
-	[BNXT_RE_RES_RX_PCI_ERR]        = "res_rx_pci_err"
+	[BNXT_RE_RES_RX_PCI_ERR]        = "res_rx_pci_err",
+	[BNXT_RE_OUT_OF_SEQ_ERR]        = "oos_drop_count"
 };
 
 int bnxt_re_ib_get_hw_stats(struct ib_device *ibdev,
 			    struct rdma_hw_stats *stats,
-			    u8 port, int index)
+			    u32 port, int index)
 {
 	struct bnxt_re_dev *rdev = to_bnxt_re_dev(ibdev, ibdev);
 	struct ctx_hw_stats *bnxt_re_stats = rdev->qplib_ctx.stats.dma;
@@ -128,6 +131,10 @@ int bnxt_re_ib_get_hw_stats(struct ib_device *ibdev,
 	if (bnxt_re_stats) {
 		stats->value[BNXT_RE_RECOVERABLE_ERRORS] =
 			le64_to_cpu(bnxt_re_stats->tx_bcast_pkts);
+		stats->value[BNXT_RE_RX_DROPS] =
+			le64_to_cpu(bnxt_re_stats->rx_error_pkts);
+		stats->value[BNXT_RE_RX_DISCARDS] =
+			le64_to_cpu(bnxt_re_stats->rx_discard_pkts);
 		stats->value[BNXT_RE_RX_PKTS] =
 			le64_to_cpu(bnxt_re_stats->rx_ucast_pkts);
 		stats->value[BNXT_RE_RX_BYTES] =
@@ -220,13 +227,15 @@ int bnxt_re_ib_get_hw_stats(struct ib_device *ibdev,
 				rdev->stats.res_tx_pci_err;
 		stats->value[BNXT_RE_RES_RX_PCI_ERR]    =
 				rdev->stats.res_rx_pci_err;
+		stats->value[BNXT_RE_OUT_OF_SEQ_ERR]    =
+				rdev->stats.res_oos_drop_count;
 	}
 
 	return ARRAY_SIZE(bnxt_re_stat_name);
 }
 
 struct rdma_hw_stats *bnxt_re_ib_alloc_hw_stats(struct ib_device *ibdev,
-						u8 port_num)
+						u32 port_num)
 {
 	BUILD_BUG_ON(ARRAY_SIZE(bnxt_re_stat_name) != BNXT_RE_NUM_COUNTERS);
 	/* We support only per port stats */

@@ -30,7 +30,7 @@
 #include "dc_hw_types.h"
 #include "fixed31_32.h"
 
-#define CSC_TEMPERATURE_MATRIX_SIZE 9
+#define CSC_TEMPERATURE_MATRIX_SIZE 12
 
 struct bit_depth_reduction_params;
 
@@ -173,6 +173,8 @@ struct scaler_data {
 	struct scaling_taps taps;
 	struct rect viewport;
 	struct rect viewport_c;
+	struct rect viewport_unadjusted;
+	struct rect viewport_c_unadjusted;
 	struct rect recout;
 	struct scaling_ratios ratios;
 	struct scl_inits inits;
@@ -252,7 +254,7 @@ struct transform_funcs {
 			struct transform *xfm_base,
 			enum surface_pixel_format format,
 			enum expansion_mode mode,
-			struct csc_transform input_csc_color_matrix,
+			struct dc_csc_transform input_csc_color_matrix,
 			enum dc_color_space input_color_space);
 
 	void (*ipp_full_bypass)(struct transform *xfm_base);

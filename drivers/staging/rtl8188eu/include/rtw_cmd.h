@@ -1,15 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /******************************************************************************
  *
  * Copyright(c) 2007 - 2011 Realtek Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
  *
  ******************************************************************************/
 #ifndef __RTW_CMD_H_
@@ -123,7 +115,7 @@ struct	setopmode_parm {
  */
 
 #define RTW_SSID_SCAN_AMOUNT 9 /*  for WEXT_CSCAN_AMOUNT 9 */
-#define RTW_CHANNEL_SCAN_AMOUNT (14+37)
+#define RTW_CHANNEL_SCAN_AMOUNT (14 + 37)
 struct sitesurvey_parm {
 	int scan_mode;	/* active: 1, passive: 0 */
 	u8 ssid_num;
@@ -368,25 +360,5 @@ enum rtw_h2c_cmd {
 
 	MAX_H2CCMD
 };
-
-#ifdef _RTW_CMD_C_
-static struct _cmd_callback	rtw_cmd_callback[] = {
-	{_JoinBss_CMD_, &rtw_joinbss_cmd_callback},
-	{_DisConnect_CMD_, &rtw_disassoc_cmd_callback},
-	{_CreateBss_CMD_, &rtw_createbss_cmd_callback},
-	{_SetOpMode_CMD_, NULL},
-	{_SiteSurvey_CMD_, &rtw_survey_cmd_callback},
-	{_SetAuth_CMD_, NULL},
-	{_SetKey_CMD_, NULL},
-	{_SetStaKey_CMD_, &rtw_setstaKey_cmdrsp_callback},
-	{_SetAssocSta_CMD_, &rtw_setassocsta_cmdrsp_callback},
-	{_AddBAReq_CMD_, NULL},
-	{_SetChannel_CMD_, NULL},
-	{_TX_Beacon_CMD_, NULL},
-	{_Set_MLME_EVT_CMD_, NULL},
-	{_Set_Drv_Extra_CMD_, NULL},
-	{_SetChannelPlan_CMD_, NULL},
-};
-#endif
 
 #endif /*  _CMD_H_ */

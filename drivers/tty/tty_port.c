@@ -18,6 +18,7 @@
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/serdev.h>
+#include "tty.h"
 
 static int tty_port_default_receive_buf(struct tty_port *port,
 					const unsigned char *p,
@@ -52,10 +53,11 @@ static void tty_port_default_wakeup(struct tty_port *port)
 	}
 }
 
-static const struct tty_port_client_operations default_client_ops = {
+const struct tty_port_client_operations tty_port_default_client_ops = {
 	.receive_buf = tty_port_default_receive_buf,
 	.write_wakeup = tty_port_default_wakeup,
 };
+EXPORT_SYMBOL_GPL(tty_port_default_client_ops);
 
 void tty_port_init(struct tty_port *port)
 {
@@ -68,7 +70,7 @@ void tty_port_init(struct tty_port *port)
 	spin_lock_init(&port->lock);
 	port->close_delay = (50 * HZ) / 100;
 	port->closing_wait = (3000 * HZ) / 100;
-	port->client_ops = &default_client_ops;
+	port->client_ops = &tty_port_default_client_ops;
 	kref_init(&port->kref);
 }
 EXPORT_SYMBOL(tty_port_init);
@@ -279,7 +281,6 @@ EXPORT_SYMBOL(tty_port_put);
  *	Return a refcount protected tty instance or NULL if the port is not
  *	associated with a tty (eg due to close or hangup)
  */
-
 struct tty_struct *tty_port_tty_get(struct tty_port *port)
 {
 	unsigned long flags;
@@ -300,7 +301,6 @@ EXPORT_SYMBOL(tty_port_tty_get);
  *	Associate the port and tty pair. Manages any internal refcounts.
  *	Pass NULL to deassociate a port
  */
-
 void tty_port_tty_set(struct tty_port *port, struct tty_struct *tty)
 {
 	unsigned long flags;
@@ -343,7 +343,6 @@ out:
  *
  *	Caller holds tty lock.
  */
-
 void tty_port_hangup(struct tty_port *port)
 {
 	struct tty_struct *tty;
@@ -399,7 +398,6 @@ EXPORT_SYMBOL_GPL(tty_port_tty_wakeup);
  *	to hide some internal details. This will eventually become entirely
  *	internal to the tty port.
  */
-
 int tty_port_carrier_raised(struct tty_port *port)
 {
 	if (port->ops->carrier_raised == NULL)
@@ -416,7 +414,6 @@ EXPORT_SYMBOL(tty_port_carrier_raised);
  *	to hide some internal details. This will eventually become entirely
  *	internal to the tty port.
  */
-
 void tty_port_raise_dtr_rts(struct tty_port *port)
 {
 	if (port->ops->dtr_rts)
@@ -432,7 +429,6 @@ EXPORT_SYMBOL(tty_port_raise_dtr_rts);
  *	to hide some internal details. This will eventually become entirely
  *	internal to the tty port.
  */
-
 void tty_port_lower_dtr_rts(struct tty_port *port)
 {
 	if (port->ops->dtr_rts)
@@ -464,7 +460,6 @@ EXPORT_SYMBOL(tty_port_lower_dtr_rts);
  *      NB: May drop and reacquire tty lock when blocking, so tty and tty_port
  *      may have changed state (eg., may have been hung up).
  */
-
 int tty_port_block_til_ready(struct tty_port *port,
 				struct tty_struct *tty, struct file *filp)
 {
@@ -629,7 +624,7 @@ void tty_port_close_end(struct tty_port *port, struct tty_struct *tty)
 }
 EXPORT_SYMBOL(tty_port_close_end);
 
-/**
+/*
  * tty_port_close
  *
  * Caller holds tty lock
@@ -640,7 +635,8 @@ void tty_port_close(struct tty_port *port, struct tty_struct *tty,
 	if (tty_port_close_start(port, tty, filp) == 0)
 		return;
 	tty_port_shutdown(port, tty);
-	set_bit(TTY_IO_ERROR, &tty->flags);
+	if (!port->console)
+		set_bit(TTY_IO_ERROR, &tty->flags);
 	tty_port_close_end(port, tty);
 	tty_port_tty_set(port, NULL);
 }
@@ -664,7 +660,7 @@ int tty_port_install(struct tty_port *port, struct tty_driver *driver,
 }
 EXPORT_SYMBOL_GPL(tty_port_install);
 
-/**
+/*
  * tty_port_open
  *
  * Caller holds tty lock.

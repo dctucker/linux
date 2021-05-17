@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * include/linux/TODO
  *
@@ -14,16 +15,6 @@
  * HopeRf with a similar interace - e. g. RFM69HCW, RFM12, RFM95, ...
  * Copyright (C) 2016 Wolf-Entwicklungen
  *	Marcus Wolf <linux@wolf-entwicklungen.de>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #ifndef PI433_H
@@ -42,7 +33,8 @@ enum option_on_off {
 /* IOCTL structs and commands */
 
 /**
- * struct pi433_tx_config - describes the configuration of the radio module for sending
+ * struct pi433_tx_config
+ * describes the configuration of the radio module for sending
  * @frequency:
  * @bit_rate:
  * @modulation:
@@ -67,9 +59,9 @@ struct pi433_tx_cfg {
 	enum modulation		modulation;
 	enum mod_shaping	mod_shaping;
 
-	enum paRamp		pa_ramp;
+	enum pa_ramp		pa_ramp;
 
-	enum txStartCondition	tx_start_condition;
+	enum tx_start_condition	tx_start_condition;
 
 	__u16			repetitions;
 
@@ -89,7 +81,8 @@ struct pi433_tx_cfg {
 };
 
 /**
- * struct pi433_rx_config - describes the configuration of the radio module for sending
+ * struct pi433_rx_config
+ * describes the configuration of the radio module for sending
  * @frequency:
  * @bit_rate:
  * @modulation:
@@ -115,18 +108,24 @@ struct pi433_rx_cfg {
 	enum modulation		modulation;
 
 	__u8			rssi_threshold;
-	enum thresholdDecrement	threshold_decrement;
-	enum antennaImpedance	antenna_impedance;
-	enum lnaGain		lna_gain;
+	enum threshold_decrement threshold_decrement;
+	enum antenna_impedance	antenna_impedance;
+	enum lna_gain		lna_gain;
 	enum mantisse		bw_mantisse;	/* normal: 0x50 */
 	__u8			bw_exponent;	/* during AFC: 0x8b */
 	enum dagc		dagc;
 
 	/* packet format */
 	enum option_on_off	enable_sync;
-	enum option_on_off	enable_length_byte;	  /* should be used in combination with sync, only */
-	enum addressFiltering	enable_address_filtering; /* operational with sync, only */
-	enum option_on_off	enable_crc;		  /* only operational, if sync on and fixed length or length byte is used */
+
+	/* should be used in combination with sync, only */
+	enum option_on_off	enable_length_byte;
+
+	/* operational with sync, only */
+	enum address_filtering	enable_address_filtering;
+
+	/* only operational, if sync on and fixed length or length byte is used */
+	enum option_on_off	enable_crc;
 
 	__u8			sync_length;
 	__u8			fixed_message_length;
@@ -137,12 +136,16 @@ struct pi433_rx_cfg {
 	__u8			broadcast_address;
 };
 
-#define PI433_IOC_MAGIC			'r'
+#define PI433_IOC_MAGIC	'r'
 
-#define PI433_IOC_RD_TX_CFG	_IOR(PI433_IOC_MAGIC, PI433_TX_CFG_IOCTL_NR, char[sizeof(struct pi433_tx_cfg)])
-#define PI433_IOC_WR_TX_CFG	_IOW(PI433_IOC_MAGIC, PI433_TX_CFG_IOCTL_NR, char[sizeof(struct pi433_tx_cfg)])
+#define PI433_IOC_RD_TX_CFG                                             \
+	_IOR(PI433_IOC_MAGIC, PI433_TX_CFG_IOCTL_NR, char[sizeof(struct pi433_tx_cfg)])
+#define PI433_IOC_WR_TX_CFG                                             \
+	_IOW(PI433_IOC_MAGIC, PI433_TX_CFG_IOCTL_NR, char[sizeof(struct pi433_tx_cfg)])
 
-#define PI433_IOC_RD_RX_CFG	_IOR(PI433_IOC_MAGIC, PI433_RX_CFG_IOCTL_NR, char[sizeof(struct pi433_rx_cfg)])
-#define PI433_IOC_WR_RX_CFG	_IOW(PI433_IOC_MAGIC, PI433_RX_CFG_IOCTL_NR, char[sizeof(struct pi433_rx_cfg)])
+#define PI433_IOC_RD_RX_CFG                                             \
+	_IOR(PI433_IOC_MAGIC, PI433_RX_CFG_IOCTL_NR, char[sizeof(struct pi433_rx_cfg)])
+#define PI433_IOC_WR_RX_CFG                                             \
+	_IOW(PI433_IOC_MAGIC, PI433_RX_CFG_IOCTL_NR, char[sizeof(struct pi433_rx_cfg)])
 
 #endif /* PI433_H */

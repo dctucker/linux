@@ -17,7 +17,6 @@
  */
 #include <linux/uaccess.h>
 #include <asm/syscall.h>
-#include <asm/unistd.h>
 #include <linux/linkage.h>
 #include <linux/stringify.h>
 #include <linux/errno.h>
@@ -28,13 +27,9 @@
 #include <linux/sched/mm.h>
 #include <linux/shm.h>
 
-typedef void (*syscall_t)(void);
-
-syscall_t sys_call_table[__NR_syscall_count] /* FIXME __cacheline_aligned */= {
-	[0 ... __NR_syscall_count - 1] = (syscall_t)&sys_ni_syscall,
-
-#define __SYSCALL(nr,symbol,nargs) [ nr ] = (syscall_t)symbol,
-#include <uapi/asm/unistd.h>
+syscall_t sys_call_table[] /* FIXME __cacheline_aligned */= {
+#define __SYSCALL(nr, entry)	(syscall_t)entry,
+#include <asm/syscall_table.h>
 };
 
 #define COLOUR_ALIGN(addr, pgoff) \
@@ -55,7 +50,7 @@ asmlinkage long xtensa_shmat(int shmid, char __user *shmaddr, int shmflg)
 asmlinkage long xtensa_fadvise64_64(int fd, int advice,
 		unsigned long long offset, unsigned long long len)
 {
-	return sys_fadvise64_64(fd, offset, len, advice);
+	return ksys_fadvise64_64(fd, offset, len, advice);
 }
 
 #ifdef CONFIG_MMU

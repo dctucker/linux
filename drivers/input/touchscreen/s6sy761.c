@@ -2,7 +2,7 @@
 // Samsung S6SY761 Touchscreen device driver
 //
 // Copyright (c) 2017 Samsung Electronics Co., Ltd.
-// Copyright (c) 2017 Andi Shyti <andi.shyti@samsung.com>
+// Copyright (c) 2017 Andi Shyti <andi@etezian.org>
 
 #include <asm/unaligned.h>
 #include <linux/delay.h>
@@ -145,8 +145,8 @@ static void s6sy761_report_coordinates(struct s6sy761_data *sdata,
 	u8 major = event[4];
 	u8 minor = event[5];
 	u8 z = event[6] & S6SY761_MASK_Z;
-	u16 x = (event[1] << 3) | ((event[3] & S6SY761_MASK_X) >> 4);
-	u16 y = (event[2] << 3) | (event[3] & S6SY761_MASK_Y);
+	u16 x = (event[1] << 4) | ((event[3] & S6SY761_MASK_X) >> 4);
+	u16 y = (event[2] << 4) | (event[3] & S6SY761_MASK_Y);
 
 	input_mt_slot(sdata->input, tid);
 

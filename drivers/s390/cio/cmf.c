@@ -13,7 +13,7 @@
 #define KMSG_COMPONENT "cio"
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
-#include <linux/bootmem.h>
+#include <linux/memblock.h>
 #include <linux/device.h>
 #include <linux/init.h>
 #include <linux/list.h>
@@ -1108,11 +1108,6 @@ static ssize_t cmb_enable_store(struct device *dev,
 	return ret ? ret : c;
 }
 DEVICE_ATTR_RW(cmb_enable);
-
-int ccw_set_cmf(struct ccw_device *cdev, int enable)
-{
-	return cmbops->set(cdev, enable ? 2 : 0);
-}
 
 /**
  * enable_cmf() - switch on the channel measurement for a specific device

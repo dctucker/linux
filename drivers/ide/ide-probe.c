@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  Copyright (C) 1994-1998   Linus Torvalds & authors (see below)
  *  Copyright (C) 2005, 2007  Bartlomiej Zolnierkiewicz
@@ -142,6 +143,7 @@ static void ide_classify_atapi_dev(ide_drive_t *drive)
 		}
 		/* Early cdrom models used zero */
 		type = ide_cdrom;
+		fallthrough;
 	case ide_cdrom:
 		drive->dev_flags |= IDE_DFLAG_REMOVABLE;
 #ifdef CONFIG_PPC
@@ -745,9 +747,15 @@ static void ide_initialize_rq(struct request *rq)
 {
 	struct ide_request *req = blk_mq_rq_to_pdu(rq);
 
+	req->special = NULL;
 	scsi_req_init(&req->sreq);
 	req->sreq.sense = req->sense;
 }
+
+static const struct blk_mq_ops ide_mq_ops = {
+	.queue_rq		= ide_queue_rq,
+	.initialize_rq_fn	= ide_initialize_rq,
+};
 
 /*
  * init request queue
@@ -758,6 +766,7 @@ static int ide_init_queue(ide_drive_t *drive)
 	ide_hwif_t *hwif = drive->hwif;
 	int max_sectors = 256;
 	int max_sg_entries = PRD_ENTRIES;
+	struct blk_mq_tag_set *set;
 
 	/*
 	 *	Our default set up assumes the normal IDE case,
@@ -766,18 +775,25 @@ static int ide_init_queue(ide_drive_t *drive)
 	 *	limits and LBA48 we could raise it but as yet
 	 *	do not.
 	 */
-	q = blk_alloc_queue_node(GFP_KERNEL, hwif_to_node(hwif));
-	if (!q)
+
+	set = &drive->tag_set;
+	set->ops = &ide_mq_ops;
+	set->nr_hw_queues = 1;
+	set->queue_depth = 32;
+	set->reserved_tags = 1;
+	set->cmd_size = sizeof(struct ide_request);
+	set->numa_node = hwif_to_node(hwif);
+	set->flags = BLK_MQ_F_SHOULD_MERGE | BLK_MQ_F_BLOCKING;
+	if (blk_mq_alloc_tag_set(set))
 		return 1;
 
-	q->request_fn = do_ide_request;
-	q->initialize_rq_fn = ide_initialize_rq;
-	q->cmd_size = sizeof(struct ide_request);
-	queue_flag_set_unlocked(QUEUE_FLAG_SCSI_PASSTHROUGH, q);
-	if (blk_init_allocated_queue(q) < 0) {
-		blk_cleanup_queue(q);
+	q = blk_mq_init_queue(set);
+	if (IS_ERR(q)) {
+		blk_mq_free_tag_set(set);
 		return 1;
 	}
+
+	blk_queue_flag_set(QUEUE_FLAG_SCSI_PASSTHROUGH, q);
 
 	q->queuedata = drive;
 	blk_queue_segment_boundary(q, 0xffff);
@@ -796,17 +812,13 @@ static int ide_init_queue(ide_drive_t *drive)
 	 * This will be fixed once we teach pci_map_sg() about our boundary
 	 * requirements, hopefully soon. *FIXME*
 	 */
-	if (!PCI_DMA_BUS_IS_PHYS)
-		max_sg_entries >>= 1;
+	max_sg_entries >>= 1;
 #endif /* CONFIG_PCI */
 
 	blk_queue_max_segments(q, max_sg_entries);
 
 	/* assign drive queue */
 	drive->queue = q;
-
-	/* needs drive->queue to be set */
-	ide_toggle_bounce(drive, 1);
 
 	return 0;
 }
@@ -890,64 +902,13 @@ out_up:
 	return 1;
 }
 
-static int ata_lock(dev_t dev, void *data)
+static void ata_probe(dev_t dev)
 {
-	/* FIXME: we want to pin hwif down */
-	return 0;
+	request_module("ide-disk");
+	request_module("ide-cd");
+	request_module("ide-tape");
+	request_module("ide-floppy");
 }
-
-static struct kobject *ata_probe(dev_t dev, int *part, void *data)
-{
-	ide_hwif_t *hwif = data;
-	int unit = *part >> PARTN_BITS;
-	ide_drive_t *drive = hwif->devices[unit];
-
-	if ((drive->dev_flags & IDE_DFLAG_PRESENT) == 0)
-		return NULL;
-
-	if (drive->media == ide_disk)
-		request_module("ide-disk");
-	if (drive->media == ide_cdrom || drive->media == ide_optical)
-		request_module("ide-cd");
-	if (drive->media == ide_tape)
-		request_module("ide-tape");
-	if (drive->media == ide_floppy)
-		request_module("ide-floppy");
-
-	return NULL;
-}
-
-static struct kobject *exact_match(dev_t dev, int *part, void *data)
-{
-	struct gendisk *p = data;
-	*part &= (1 << PARTN_BITS) - 1;
-	return &disk_to_dev(p)->kobj;
-}
-
-static int exact_lock(dev_t dev, void *data)
-{
-	struct gendisk *p = data;
-
-	if (!get_disk_and_module(p))
-		return -1;
-	return 0;
-}
-
-void ide_register_region(struct gendisk *disk)
-{
-	blk_register_region(MKDEV(disk->major, disk->first_minor),
-			    disk->minors, NULL, exact_match, exact_lock, disk);
-}
-
-EXPORT_SYMBOL_GPL(ide_register_region);
-
-void ide_unregister_region(struct gendisk *disk)
-{
-	blk_unregister_region(MKDEV(disk->major, disk->first_minor),
-			      disk->minors);
-}
-
-EXPORT_SYMBOL_GPL(ide_unregister_region);
 
 void ide_init_disk(struct gendisk *disk, ide_drive_t *drive)
 {
@@ -968,8 +929,12 @@ static void drive_release_dev (struct device *dev)
 
 	ide_proc_unregister_device(drive);
 
+	if (drive->sense_rq)
+		blk_mq_free_request(drive->sense_rq);
+
 	blk_cleanup_queue(drive->queue);
 	drive->queue = NULL;
+	blk_mq_free_tag_set(&drive->tag_set);
 
 	drive->dev_flags &= ~IDE_DFLAG_PRESENT;
 
@@ -983,14 +948,15 @@ static int hwif_init(ide_hwif_t *hwif)
 		return 0;
 	}
 
-	if (register_blkdev(hwif->major, hwif->name))
+	if (__register_blkdev(hwif->major, hwif->name, ata_probe))
 		return 0;
 
 	if (!hwif->sg_max_nents)
 		hwif->sg_max_nents = PRD_ENTRIES;
 
-	hwif->sg_table = kmalloc(sizeof(struct scatterlist)*hwif->sg_max_nents,
-				 GFP_KERNEL);
+	hwif->sg_table = kmalloc_array(hwif->sg_max_nents,
+				       sizeof(struct scatterlist),
+				       GFP_KERNEL);
 	if (!hwif->sg_table) {
 		printk(KERN_ERR "%s: unable to allocate SG table.\n", hwif->name);
 		goto out;
@@ -1004,8 +970,6 @@ static int hwif_init(ide_hwif_t *hwif)
 		goto out;
 	}
 
-	blk_register_region(MKDEV(hwif->major, 0), MAX_DRIVES << PARTN_BITS,
-			    THIS_MODULE, ata_probe, ata_lock, hwif);
 	return 1;
 
 out:
@@ -1135,6 +1099,37 @@ static void ide_port_cable_detect(ide_hwif_t *hwif)
 	}
 }
 
+/*
+ * Deferred request list insertion handler
+ */
+static void drive_rq_insert_work(struct work_struct *work)
+{
+	ide_drive_t *drive = container_of(work, ide_drive_t, rq_work);
+	ide_hwif_t *hwif = drive->hwif;
+	struct request *rq;
+	blk_status_t ret;
+	LIST_HEAD(list);
+
+	blk_mq_quiesce_queue(drive->queue);
+
+	ret = BLK_STS_OK;
+	spin_lock_irq(&hwif->lock);
+	while (!list_empty(&drive->rq_list)) {
+		rq = list_first_entry(&drive->rq_list, struct request, queuelist);
+		list_del_init(&rq->queuelist);
+
+		spin_unlock_irq(&hwif->lock);
+		ret = ide_issue_rq(drive, rq, true);
+		spin_lock_irq(&hwif->lock);
+	}
+	spin_unlock_irq(&hwif->lock);
+
+	blk_mq_unquiesce_queue(drive->queue);
+
+	if (ret != BLK_STS_OK)
+		kblockd_schedule_work(&drive->rq_work);
+}
+
 static const u8 ide_hwif_to_major[] =
 	{ IDE0_MAJOR, IDE1_MAJOR, IDE2_MAJOR, IDE3_MAJOR, IDE4_MAJOR,
 	  IDE5_MAJOR, IDE6_MAJOR, IDE7_MAJOR, IDE8_MAJOR, IDE9_MAJOR };
@@ -1147,12 +1142,10 @@ static void ide_port_init_devices_data(ide_hwif_t *hwif)
 	ide_port_for_each_dev(i, drive, hwif) {
 		u8 j = (hwif->index * MAX_DRIVES) + i;
 		u16 *saved_id = drive->id;
-		struct request *saved_sense_rq = drive->sense_rq;
 
 		memset(drive, 0, sizeof(*drive));
 		memset(saved_id, 0, SECTOR_SIZE);
 		drive->id = saved_id;
-		drive->sense_rq = saved_sense_rq;
 
 		drive->media			= ide_disk;
 		drive->select			= (i << 4) | ATA_DEVICE_OBS;
@@ -1168,6 +1161,9 @@ static void ide_port_init_devices_data(ide_hwif_t *hwif)
 
 		INIT_LIST_HEAD(&drive->list);
 		init_completion(&drive->gendev_rel_comp);
+
+		INIT_WORK(&drive->rq_work, drive_rq_insert_work);
+		INIT_LIST_HEAD(&drive->rq_list);
 	}
 }
 
@@ -1257,7 +1253,6 @@ static void ide_port_free_devices(ide_hwif_t *hwif)
 	int i;
 
 	ide_port_for_each_dev(i, drive, hwif) {
-		kfree(drive->sense_rq);
 		kfree(drive->id);
 		kfree(drive);
 	}
@@ -1285,17 +1280,10 @@ static int ide_port_alloc_devices(ide_hwif_t *hwif, int node)
 		if (drive->id == NULL)
 			goto out_free_drive;
 
-		drive->sense_rq = kmalloc(sizeof(struct request) +
-				sizeof(struct ide_request), GFP_KERNEL);
-		if (!drive->sense_rq)
-			goto out_free_id;
-
 		hwif->devices[i] = drive;
 	}
 	return 0;
 
-out_free_id:
-	kfree(drive->id);
 out_free_drive:
 	kfree(drive);
 out_nomem:
@@ -1396,6 +1384,9 @@ int ide_host_register(struct ide_host *host, const struct ide_port_info *d,
 {
 	ide_hwif_t *hwif, *mate = NULL;
 	int i, j = 0;
+
+	pr_warn("legacy IDE will be removed in 2021, please switch to libata\n"
+		"Report any missing HW support to linux-ide@vger.kernel.org\n");
 
 	ide_host_for_each_port(i, hwif, host) {
 		if (hwif == NULL) {
@@ -1548,9 +1539,6 @@ EXPORT_SYMBOL_GPL(ide_port_unregister_devices);
 
 static void ide_unregister(ide_hwif_t *hwif)
 {
-	BUG_ON(in_interrupt());
-	BUG_ON(irqs_disabled());
-
 	mutex_lock(&ide_cfg_mtx);
 
 	if (hwif->present) {
@@ -1570,7 +1558,6 @@ static void ide_unregister(ide_hwif_t *hwif)
 	/*
 	 * Remove us from the kernel's knowledge
 	 */
-	blk_unregister_region(MKDEV(hwif->major, 0), MAX_DRIVES<<PARTN_BITS);
 	kfree(hwif->sg_table);
 	unregister_blkdev(hwif->major, hwif->name);
 

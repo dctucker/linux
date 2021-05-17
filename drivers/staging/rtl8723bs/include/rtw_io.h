@@ -1,15 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /******************************************************************************
  *
  * Copyright(c) 2007 - 2011 Realtek Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
  *
  ******************************************************************************/
 
@@ -123,7 +115,6 @@ struct io_req {
 	u32 command;
 	u32 status;
 	u8 *pbuf;
-	_sema	sema;
 
 	void (*_async_io_callback)(struct adapter *padater, struct io_req *pio_req, u8 *cnxt);
 	u8 *cnxt;
@@ -136,117 +127,6 @@ struct	intf_hdl {
 	struct _io_ops	io_ops;
 };
 
-struct reg_protocol_rd {
-
-#ifdef __LITTLE_ENDIAN
-
-	/* DW1 */
-	u32 	NumOfTrans:4;
-	u32 	Reserved1:4;
-	u32 	Reserved2:24;
-	/* DW2 */
-	u32 	ByteCount:7;
-	u32 	WriteEnable:1;		/* 0:read, 1:write */
-	u32 	FixOrContinuous:1;	/* 0:continuous, 1: Fix */
-	u32 	BurstMode:1;
-	u32 	Byte1Access:1;
-	u32 	Byte2Access:1;
-	u32 	Byte4Access:1;
-	u32 	Reserved3:3;
-	u32 	Reserved4:16;
-	/* DW3 */
-	u32 	BusAddress;
-	/* DW4 */
-	/* u32 	Value; */
-#else
-
-
-/* DW1 */
-	u32 Reserved1  :4;
-	u32 NumOfTrans :4;
-
-	u32 Reserved2  :24;
-
-	/* DW2 */
-	u32 WriteEnable : 1;
-	u32 ByteCount :7;
-
-
-	u32 Reserved3 : 3;
-	u32 Byte4Access : 1;
-
-	u32 Byte2Access : 1;
-	u32 Byte1Access : 1;
-	u32 BurstMode :1 ;
-	u32 FixOrContinuous : 1;
-
-	u32 Reserved4 : 16;
-
-	/* DW3 */
-	u32 	BusAddress;
-
-	/* DW4 */
-	/* u32 	Value; */
-
-#endif
-
-};
-
-
-struct reg_protocol_wt {
-
-
-#ifdef __LITTLE_ENDIAN
-
-	/* DW1 */
-	u32 	NumOfTrans:4;
-	u32 	Reserved1:4;
-	u32 	Reserved2:24;
-	/* DW2 */
-	u32 	ByteCount:7;
-	u32 	WriteEnable:1;		/* 0:read, 1:write */
-	u32 	FixOrContinuous:1;	/* 0:continuous, 1: Fix */
-	u32 	BurstMode:1;
-	u32 	Byte1Access:1;
-	u32 	Byte2Access:1;
-	u32 	Byte4Access:1;
-	u32 	Reserved3:3;
-	u32 	Reserved4:16;
-	/* DW3 */
-	u32 	BusAddress;
-	/* DW4 */
-	u32 	Value;
-
-#else
-	/* DW1 */
-	u32 Reserved1  :4;
-	u32 NumOfTrans :4;
-
-	u32 Reserved2  :24;
-
-	/* DW2 */
-	u32 WriteEnable : 1;
-	u32 ByteCount :7;
-
-	u32 Reserved3 : 3;
-	u32 Byte4Access : 1;
-
-	u32 Byte2Access : 1;
-	u32 Byte1Access : 1;
-	u32 BurstMode :1 ;
-	u32 FixOrContinuous : 1;
-
-	u32 Reserved4 : 16;
-
-	/* DW3 */
-	u32 	BusAddress;
-
-	/* DW4 */
-	u32 	Value;
-
-#endif
-
-};
 #define SD_IO_TRY_CNT (8)
 #define MAX_CONTINUAL_IO_ERR SD_IO_TRY_CNT
 
@@ -259,7 +139,7 @@ Below is the data structure used by _io_handler
 */
 
 struct io_queue {
-	_lock	lock;
+	spinlock_t	lock;
 	struct list_head	free_ioreqs;
 	struct list_head		pending;		/* The io_req list that will be served in the single protocol read/write. */
 	struct list_head		processing;
@@ -268,7 +148,7 @@ struct io_queue {
 	struct	intf_hdl	intf;
 };
 
-struct io_priv{
+struct io_priv {
 
 	struct adapter *padapter;
 
@@ -354,7 +234,7 @@ extern void free_io_queue(struct adapter *adapter);
 extern void async_bus_io(struct io_queue *pio_q);
 extern void bus_sync_io(struct io_queue *pio_q);
 extern u32 _ioreq2rwmem(struct io_queue *pio_q);
-extern void dev_power_down(struct adapter * Adapter, u8 bpwrup);
+extern void dev_power_down(struct adapter *Adapter, u8 bpwrup);
 
 #define PlatformEFIOWrite1Byte(_a, _b, _c)		\
 	rtw_write8(_a, _b, _c)

@@ -9,10 +9,10 @@
  *   if (value)
  *        (*(u64*)value) += 1;
  *
- * - attaches this program to eth0 raw socket
+ * - attaches this program to loopback interface "lo" raw socket
  *
  * - every second user space reads map[tcp], map[udp], map[icmp] to see
- *   how many packets of given protocol were seen on eth0
+ *   how many packets of given protocol were seen on "lo"
  */
 #include <stdio.h>
 #include <unistd.h>
@@ -26,7 +26,8 @@
 #include <linux/if_ether.h>
 #include <linux/ip.h>
 #include <stddef.h>
-#include "libbpf.h"
+#include <bpf/bpf.h>
+#include "bpf_insn.h"
 #include "sock_example.h"
 
 char bpf_log_buf[BPF_LOG_BUF_SIZE];
@@ -53,7 +54,7 @@ static int test_sock(void)
 		BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_map_lookup_elem),
 		BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 0, 2),
 		BPF_MOV64_IMM(BPF_REG_1, 1), /* r1 = 1 */
-		BPF_RAW_INSN(BPF_STX | BPF_XADD | BPF_DW, BPF_REG_0, BPF_REG_1, 0, 0), /* xadd r0 += r1 */
+		BPF_ATOMIC_OP(BPF_DW, BPF_ADD, BPF_REG_0, BPF_REG_1, 0),
 		BPF_MOV64_IMM(BPF_REG_0, 0), /* r0 = 0 */
 		BPF_EXIT_INSN(),
 	};
@@ -98,7 +99,7 @@ int main(void)
 {
 	FILE *f;
 
-	f = popen("ping -c5 localhost", "r");
+	f = popen("ping -4 -c5 localhost", "r");
 	(void)f;
 
 	return test_sock();

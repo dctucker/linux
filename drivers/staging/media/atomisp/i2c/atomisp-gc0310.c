@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Support for GalaxyCore GC0310 VGA camera sensor.
  *
@@ -101,7 +102,7 @@ static int gc0310_i2c_write(struct i2c_client *client, u16 len, u8 *data)
 }
 
 static int gc0310_write_reg(struct i2c_client *client, u16 data_length,
-							u8 reg, u8 val)
+			    u8 reg, u8 val)
 {
 	int ret;
 	unsigned char data[2] = {0};
@@ -222,7 +223,7 @@ static int gc0310_write_reg_array(struct i2c_client *client,
 			 * flushed before proceed.
 			 */
 			if (!__gc0310_write_reg_is_consecutive(client, &ctrl,
-								next)) {
+							       next)) {
 				err = __gc0310_flush_reg_array(client, &ctrl);
 				if (err)
 					return err;
@@ -230,7 +231,7 @@ static int gc0310_write_reg_array(struct i2c_client *client,
 			err = __gc0310_buf_reg_array(client, &ctrl, next);
 			if (err) {
 				dev_err(&client->dev, "%s: write error, aborted\n",
-					 __func__);
+					__func__);
 				return err;
 			}
 			break;
@@ -239,6 +240,7 @@ static int gc0310_write_reg_array(struct i2c_client *client,
 
 	return __gc0310_flush_reg_array(client, &ctrl);
 }
+
 static int gc0310_g_focal(struct v4l2_subdev *sd, s32 *val)
 {
 	*val = (GC0310_FOCAL_LENGTH_NUM << 16) | GC0310_FOCAL_LENGTH_DEM;
@@ -255,8 +257,8 @@ static int gc0310_g_fnumber(struct v4l2_subdev *sd, s32 *val)
 static int gc0310_g_fnumber_range(struct v4l2_subdev *sd, s32 *val)
 {
 	*val = (GC0310_F_NUMBER_DEFAULT_NUM << 24) |
-		(GC0310_F_NUMBER_DEM << 16) |
-		(GC0310_F_NUMBER_DEFAULT_NUM << 8) | GC0310_F_NUMBER_DEM;
+	       (GC0310_F_NUMBER_DEM << 16) |
+	       (GC0310_F_NUMBER_DEFAULT_NUM << 8) | GC0310_F_NUMBER_DEM;
 	return 0;
 }
 
@@ -279,8 +281,8 @@ static int gc0310_g_bin_factor_y(struct v4l2_subdev *sd, s32 *val)
 }
 
 static int gc0310_get_intg_factor(struct i2c_client *client,
-				struct camera_mipi_info *info,
-				const struct gc0310_resolution *res)
+				  struct camera_mipi_info *info,
+				  const struct gc0310_resolution *res)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct gc0310_device *dev = to_gc0310_sensor(sd);
@@ -303,11 +305,11 @@ static int gc0310_get_intg_factor(struct i2c_client *client,
 	/* get integration time */
 	buf->coarse_integration_time_min = GC0310_COARSE_INTG_TIME_MIN;
 	buf->coarse_integration_time_max_margin =
-					GC0310_COARSE_INTG_TIME_MAX_MARGIN;
+	    GC0310_COARSE_INTG_TIME_MAX_MARGIN;
 
 	buf->fine_integration_time_min = GC0310_FINE_INTG_TIME_MIN;
 	buf->fine_integration_time_max_margin =
-					GC0310_FINE_INTG_TIME_MAX_MARGIN;
+	    GC0310_FINE_INTG_TIME_MAX_MARGIN;
 
 	buf->fine_integration_time_def = GC0310_FINE_INTG_TIME_MIN;
 	buf->read_mode = res->bin_mode;
@@ -315,12 +317,12 @@ static int gc0310_get_intg_factor(struct i2c_client *client,
 	/* get the cropping and output resolution to ISP for this mode. */
 	/* Getting crop_horizontal_start */
 	ret =  gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_H_CROP_START_H, &reg_val);
+			       GC0310_H_CROP_START_H, &reg_val);
 	if (ret)
 		return ret;
 	val = (reg_val & 0xFF) << 8;
 	ret =  gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_H_CROP_START_L, &reg_val);
+			       GC0310_H_CROP_START_L, &reg_val);
 	if (ret)
 		return ret;
 	buf->crop_horizontal_start = val | (reg_val & 0xFF);
@@ -328,12 +330,12 @@ static int gc0310_get_intg_factor(struct i2c_client *client,
 
 	/* Getting crop_vertical_start */
 	ret =  gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_V_CROP_START_H, &reg_val);
+			       GC0310_V_CROP_START_H, &reg_val);
 	if (ret)
 		return ret;
 	val = (reg_val & 0xFF) << 8;
 	ret =  gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_V_CROP_START_L, &reg_val);
+			       GC0310_V_CROP_START_L, &reg_val);
 	if (ret)
 		return ret;
 	buf->crop_vertical_start = val | (reg_val & 0xFF);
@@ -341,12 +343,12 @@ static int gc0310_get_intg_factor(struct i2c_client *client,
 
 	/* Getting output_width */
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_H_OUTSIZE_H, &reg_val);
+			      GC0310_H_OUTSIZE_H, &reg_val);
 	if (ret)
 		return ret;
 	val = (reg_val & 0xFF) << 8;
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_H_OUTSIZE_L, &reg_val);
+			      GC0310_H_OUTSIZE_L, &reg_val);
 	if (ret)
 		return ret;
 	buf->output_width = val | (reg_val & 0xFF);
@@ -354,12 +356,12 @@ static int gc0310_get_intg_factor(struct i2c_client *client,
 
 	/* Getting output_height */
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_V_OUTSIZE_H, &reg_val);
+			      GC0310_V_OUTSIZE_H, &reg_val);
 	if (ret)
 		return ret;
 	val = (reg_val & 0xFF) << 8;
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_V_OUTSIZE_L, &reg_val);
+			      GC0310_V_OUTSIZE_L, &reg_val);
 	if (ret)
 		return ret;
 	buf->output_height = val | (reg_val & 0xFF);
@@ -372,41 +374,43 @@ static int gc0310_get_intg_factor(struct i2c_client *client,
 
 	/* Getting line_length_pck */
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_H_BLANKING_H, &reg_val);
+			      GC0310_H_BLANKING_H, &reg_val);
 	if (ret)
 		return ret;
 	val = (reg_val & 0xFF) << 8;
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_H_BLANKING_L, &reg_val);
+			      GC0310_H_BLANKING_L, &reg_val);
 	if (ret)
 		return ret;
 	hori_blanking = val | (reg_val & 0xFF);
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_SH_DELAY, &reg_val);
+			      GC0310_SH_DELAY, &reg_val);
 	if (ret)
 		return ret;
 	sh_delay = reg_val;
 	buf->line_length_pck = buf->output_width + hori_blanking + sh_delay + 4;
-	pr_info("hori_blanking=%d sh_delay=%d line_length_pck=%d\n", hori_blanking, sh_delay, buf->line_length_pck);
+	pr_info("hori_blanking=%d sh_delay=%d line_length_pck=%d\n", hori_blanking,
+		sh_delay, buf->line_length_pck);
 
 	/* Getting frame_length_lines */
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_V_BLANKING_H, &reg_val);
+			      GC0310_V_BLANKING_H, &reg_val);
 	if (ret)
 		return ret;
 	val = (reg_val & 0xFF) << 8;
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_V_BLANKING_L, &reg_val);
+			      GC0310_V_BLANKING_L, &reg_val);
 	if (ret)
 		return ret;
 	vert_blanking = val | (reg_val & 0xFF);
 	buf->frame_length_lines = buf->output_height + vert_blanking;
-	pr_info("vert_blanking=%d frame_length_lines=%d\n", vert_blanking, buf->frame_length_lines);
+	pr_info("vert_blanking=%d frame_length_lines=%d\n", vert_blanking,
+		buf->frame_length_lines);
 
 	buf->binning_factor_x = res->bin_factor_x ?
-					res->bin_factor_x : 1;
+				res->bin_factor_x : 1;
 	buf->binning_factor_y = res->bin_factor_y ?
-					res->bin_factor_y : 1;
+				res->bin_factor_y : 1;
 	return 0;
 }
 
@@ -434,13 +438,13 @@ static int gc0310_set_gain(struct v4l2_subdev *sd, int gain)
 
 	/* set analog gain */
 	ret = gc0310_write_reg(client, GC0310_8BIT,
-					GC0310_AGC_ADJ, again);
+			       GC0310_AGC_ADJ, again);
 	if (ret)
 		return ret;
 
 	/* set digital gain */
 	ret = gc0310_write_reg(client, GC0310_8BIT,
-					GC0310_DGC_ADJ, dgain);
+			       GC0310_DGC_ADJ, dgain);
 	if (ret)
 		return ret;
 
@@ -458,14 +462,14 @@ static int __gc0310_set_exposure(struct v4l2_subdev *sd, int coarse_itg,
 
 	/* set exposure */
 	ret = gc0310_write_reg(client, GC0310_8BIT,
-					GC0310_AEC_PK_EXPO_L,
-					coarse_itg & 0xff);
+			       GC0310_AEC_PK_EXPO_L,
+			       coarse_itg & 0xff);
 	if (ret)
 		return ret;
 
 	ret = gc0310_write_reg(client, GC0310_8BIT,
-					GC0310_AEC_PK_EXPO_H,
-					(coarse_itg >> 8) & 0x0f);
+			       GC0310_AEC_PK_EXPO_H,
+			       (coarse_itg >> 8) & 0x0f);
 	if (ret)
 		return ret;
 
@@ -477,7 +481,7 @@ static int __gc0310_set_exposure(struct v4l2_subdev *sd, int coarse_itg,
 }
 
 static int gc0310_set_exposure(struct v4l2_subdev *sd, int exposure,
-	int gain, int digitgain)
+			       int gain, int digitgain)
 {
 	struct gc0310_device *dev = to_gc0310_sensor(sd);
 	int ret;
@@ -490,7 +494,7 @@ static int gc0310_set_exposure(struct v4l2_subdev *sd, int exposure,
 }
 
 static long gc0310_s_exposure(struct v4l2_subdev *sd,
-			       struct atomisp_exposure *exposure)
+			      struct atomisp_exposure *exposure)
 {
 	int exp = exposure->integration_time[0];
 	int gain = exposure->gain[0];
@@ -499,6 +503,7 @@ static long gc0310_s_exposure(struct v4l2_subdev *sd,
 	/* we should not accept the invalid value below. */
 	if (gain == 0) {
 		struct i2c_client *client = v4l2_get_subdevdata(sd);
+
 		v4l2_err(client, "%s: invalid value\n", __func__);
 		return -EINVAL;
 	}
@@ -520,7 +525,6 @@ static int gc0310_h_flip(struct v4l2_subdev *sd, s32 value)
 
 static long gc0310_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
-
 	switch (cmd) {
 	case ATOMISP_IOC_S_EXPOSURE:
 		return gc0310_s_exposure(sd, arg);
@@ -541,15 +545,15 @@ static int gc0310_q_exposure(struct v4l2_subdev *sd, s32 *value)
 
 	/* get exposure */
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_AEC_PK_EXPO_L,
-					&reg_v);
+			      GC0310_AEC_PK_EXPO_L,
+			      &reg_v);
 	if (ret)
 		goto err;
 
 	*value = reg_v;
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_AEC_PK_EXPO_H,
-					&reg_v);
+			      GC0310_AEC_PK_EXPO_H,
+			      &reg_v);
 	if (ret)
 		goto err;
 
@@ -619,93 +623,93 @@ static const struct v4l2_ctrl_ops ctrl_ops = {
 	.g_volatile_ctrl = gc0310_g_volatile_ctrl
 };
 
-struct v4l2_ctrl_config gc0310_controls[] = {
+static const struct v4l2_ctrl_config gc0310_controls[] = {
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_EXPOSURE_ABSOLUTE,
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .name = "exposure",
-	 .min = 0x0,
-	 .max = 0xffff,
-	 .step = 0x01,
-	 .def = 0x00,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_EXPOSURE_ABSOLUTE,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "exposure",
+		.min = 0x0,
+		.max = 0xffff,
+		.step = 0x01,
+		.def = 0x00,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_VFLIP,
-	 .type = V4L2_CTRL_TYPE_BOOLEAN,
-	 .name = "Flip",
-	 .min = 0,
-	 .max = 1,
-	 .step = 1,
-	 .def = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_VFLIP,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.name = "Flip",
+		.min = 0,
+		.max = 1,
+		.step = 1,
+		.def = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_HFLIP,
-	 .type = V4L2_CTRL_TYPE_BOOLEAN,
-	 .name = "Mirror",
-	 .min = 0,
-	 .max = 1,
-	 .step = 1,
-	 .def = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_HFLIP,
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.name = "Mirror",
+		.min = 0,
+		.max = 1,
+		.step = 1,
+		.def = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_FOCAL_ABSOLUTE,
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .name = "focal length",
-	 .min = GC0310_FOCAL_LENGTH_DEFAULT,
-	 .max = GC0310_FOCAL_LENGTH_DEFAULT,
-	 .step = 0x01,
-	 .def = GC0310_FOCAL_LENGTH_DEFAULT,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_FOCAL_ABSOLUTE,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "focal length",
+		.min = GC0310_FOCAL_LENGTH_DEFAULT,
+		.max = GC0310_FOCAL_LENGTH_DEFAULT,
+		.step = 0x01,
+		.def = GC0310_FOCAL_LENGTH_DEFAULT,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_FNUMBER_ABSOLUTE,
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .name = "f-number",
-	 .min = GC0310_F_NUMBER_DEFAULT,
-	 .max = GC0310_F_NUMBER_DEFAULT,
-	 .step = 0x01,
-	 .def = GC0310_F_NUMBER_DEFAULT,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_FNUMBER_ABSOLUTE,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "f-number",
+		.min = GC0310_F_NUMBER_DEFAULT,
+		.max = GC0310_F_NUMBER_DEFAULT,
+		.step = 0x01,
+		.def = GC0310_F_NUMBER_DEFAULT,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_FNUMBER_RANGE,
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .name = "f-number range",
-	 .min = GC0310_F_NUMBER_RANGE,
-	 .max = GC0310_F_NUMBER_RANGE,
-	 .step = 0x01,
-	 .def = GC0310_F_NUMBER_RANGE,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_FNUMBER_RANGE,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "f-number range",
+		.min = GC0310_F_NUMBER_RANGE,
+		.max = GC0310_F_NUMBER_RANGE,
+		.step = 0x01,
+		.def = GC0310_F_NUMBER_RANGE,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_BIN_FACTOR_HORZ,
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .name = "horizontal binning factor",
-	 .min = 0,
-	 .max = GC0310_BIN_FACTOR_MAX,
-	 .step = 1,
-	 .def = 0,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_BIN_FACTOR_HORZ,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "horizontal binning factor",
+		.min = 0,
+		.max = GC0310_BIN_FACTOR_MAX,
+		.step = 1,
+		.def = 0,
+		.flags = 0,
+	},
 	{
-	 .ops = &ctrl_ops,
-	 .id = V4L2_CID_BIN_FACTOR_VERT,
-	 .type = V4L2_CTRL_TYPE_INTEGER,
-	 .name = "vertical binning factor",
-	 .min = 0,
-	 .max = GC0310_BIN_FACTOR_MAX,
-	 .step = 1,
-	 .def = 0,
-	 .flags = 0,
-	 },
+		.ops = &ctrl_ops,
+		.id = V4L2_CID_BIN_FACTOR_VERT,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "vertical binning factor",
+		.min = 0,
+		.max = GC0310_BIN_FACTOR_MAX,
+		.step = 1,
+		.def = 0,
+		.flags = 0,
+	},
 };
 
 static int gc0310_init(struct v4l2_subdev *sd)
@@ -717,7 +721,7 @@ static int gc0310_init(struct v4l2_subdev *sd)
 	pr_info("%s S\n", __func__);
 	mutex_lock(&dev->input_lock);
 
-	/* set inital registers */
+	/* set initial registers */
 	ret  = gc0310_write_reg_array(client, gc0310_reset_register);
 
 	/* restore settings */
@@ -727,13 +731,14 @@ static int gc0310_init(struct v4l2_subdev *sd)
 	mutex_unlock(&dev->input_lock);
 
 	pr_info("%s E\n", __func__);
-	return 0;
+	return ret;
 }
 
 static int power_ctrl(struct v4l2_subdev *sd, bool flag)
 {
 	int ret = 0;
 	struct gc0310_device *dev = to_gc0310_sensor(sd);
+
 	if (!dev || !dev->platform_data)
 		return -ENODEV;
 
@@ -782,7 +787,6 @@ static int gpio_ctrl(struct v4l2_subdev *sd, bool flag)
 	}
 	return ret;
 }
-
 
 static int power_down(struct v4l2_subdev *sd);
 
@@ -867,14 +871,15 @@ static int power_down(struct v4l2_subdev *sd)
 static int gc0310_s_power(struct v4l2_subdev *sd, int on)
 {
 	int ret;
+
 	if (on == 0)
 		return power_down(sd);
-	else {
-		ret = power_up(sd);
-		if (!ret)
-			return gc0310_init(sd);
-	}
-	return ret;
+
+	ret = power_up(sd);
+	if (ret)
+		return ret;
+
+	return gc0310_init(sd);
 }
 
 /*
@@ -899,10 +904,10 @@ static int distance(struct gc0310_resolution *res, u32 w, u32 h)
 	h_ratio = (res->height << 13) / h;
 	if (h_ratio == 0)
 		return -1;
-	match   = abs(((w_ratio << 13) / h_ratio) - ((int)8192));
+	match   = abs(((w_ratio << 13) / h_ratio) - 8192);
 
-	if ((w_ratio < (int)8192) || (h_ratio < (int)8192)  ||
-		(match > LARGEST_ALLOWED_RATIO_MISMATCH))
+	if ((w_ratio < 8192) || (h_ratio < 8192)  ||
+	    (match > LARGEST_ALLOWED_RATIO_MISMATCH))
 		return -1;
 
 	return w_ratio + h_ratio;
@@ -947,7 +952,6 @@ static int get_resolution_index(int w, int h)
 	return -1;
 }
 
-
 /* TODO: remove it. */
 static int startup(struct v4l2_subdev *sd)
 {
@@ -977,6 +981,7 @@ static int gc0310_set_fmt(struct v4l2_subdev *sd,
 	struct camera_mipi_info *gc0310_info = NULL;
 	int ret = 0;
 	int idx = 0;
+
 	pr_info("%s S\n", __func__);
 
 	if (format->pad)
@@ -1015,7 +1020,7 @@ static int gc0310_set_fmt(struct v4l2_subdev *sd,
 		return -EINVAL;
 	}
 
-	printk("%s: before gc0310_write_reg_array %s\n", __FUNCTION__,
+	printk("%s: before gc0310_write_reg_array %s\n", __func__,
 	       gc0310_res[dev->fmt_idx].desc);
 	ret = startup(sd);
 	if (ret) {
@@ -1068,22 +1073,23 @@ static int gc0310_detect(struct i2c_client *client)
 		return -ENODEV;
 
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_SC_CMMN_CHIP_ID_H, &high);
+			      GC0310_SC_CMMN_CHIP_ID_H, &high);
 	if (ret) {
 		dev_err(&client->dev, "read sensor_id_high failed\n");
 		return -ENODEV;
 	}
 	ret = gc0310_read_reg(client, GC0310_8BIT,
-					GC0310_SC_CMMN_CHIP_ID_L, &low);
+			      GC0310_SC_CMMN_CHIP_ID_L, &low);
 	if (ret) {
 		dev_err(&client->dev, "read sensor_id_low failed\n");
 		return -ENODEV;
 	}
-	id = ((((u16) high) << 8) | (u16) low);
+	id = ((((u16)high) << 8) | (u16)low);
 	pr_info("sensor ID = 0x%x\n", id);
 
 	if (id != GC0310_ID) {
-		dev_err(&client->dev, "sensor ID error, read id = 0x%x, target id = 0x%x\n", id, GC0310_ID);
+		dev_err(&client->dev, "sensor ID error, read id = 0x%x, target id = 0x%x\n", id,
+			GC0310_ID);
 		return -ENODEV;
 	}
 
@@ -1106,7 +1112,7 @@ static int gc0310_s_stream(struct v4l2_subdev *sd, int enable)
 	if (enable) {
 		/* enable per frame MIPI and sensor ctrl reset  */
 		ret = gc0310_write_reg(client, GC0310_8BIT,
-						0xFE, 0x30);
+				       0xFE, 0x30);
 		if (ret) {
 			mutex_unlock(&dev->input_lock);
 			return ret;
@@ -1114,22 +1120,22 @@ static int gc0310_s_stream(struct v4l2_subdev *sd, int enable)
 	}
 
 	ret = gc0310_write_reg(client, GC0310_8BIT,
-				GC0310_RESET_RELATED, GC0310_REGISTER_PAGE_3);
+			       GC0310_RESET_RELATED, GC0310_REGISTER_PAGE_3);
 	if (ret) {
 		mutex_unlock(&dev->input_lock);
 		return ret;
 	}
 
 	ret = gc0310_write_reg(client, GC0310_8BIT, GC0310_SW_STREAM,
-				enable ? GC0310_START_STREAMING :
-				GC0310_STOP_STREAMING);
+			       enable ? GC0310_START_STREAMING :
+			       GC0310_STOP_STREAMING);
 	if (ret) {
 		mutex_unlock(&dev->input_lock);
 		return ret;
 	}
 
 	ret = gc0310_write_reg(client, GC0310_8BIT,
-				GC0310_RESET_RELATED, GC0310_REGISTER_PAGE_0);
+			       GC0310_RESET_RELATED, GC0310_REGISTER_PAGE_0);
 	if (ret) {
 		mutex_unlock(&dev->input_lock);
 		return ret;
@@ -1139,7 +1145,6 @@ static int gc0310_s_stream(struct v4l2_subdev *sd, int enable)
 	pr_info("%s E\n", __func__);
 	return ret;
 }
-
 
 static int gc0310_s_config(struct v4l2_subdev *sd,
 			   int irq, void *platform_data)
@@ -1153,7 +1158,7 @@ static int gc0310_s_config(struct v4l2_subdev *sd,
 		return -ENODEV;
 
 	dev->platform_data =
-		(struct camera_sensor_platform_data *)platform_data;
+	    (struct camera_sensor_platform_data *)platform_data;
 
 	mutex_lock(&dev->input_lock);
 	/* power off the module, then power on it in future
@@ -1204,57 +1209,6 @@ fail_power_off:
 	return ret;
 }
 
-static int gc0310_g_parm(struct v4l2_subdev *sd,
-			struct v4l2_streamparm *param)
-{
-	struct gc0310_device *dev = to_gc0310_sensor(sd);
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-
-	if (!param)
-		return -EINVAL;
-
-	if (param->type != V4L2_BUF_TYPE_VIDEO_CAPTURE) {
-		dev_err(&client->dev,  "unsupported buffer type.\n");
-		return -EINVAL;
-	}
-
-	memset(param, 0, sizeof(*param));
-	param->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-
-	if (dev->fmt_idx >= 0 && dev->fmt_idx < N_RES) {
-		param->parm.capture.capability = V4L2_CAP_TIMEPERFRAME;
-		param->parm.capture.timeperframe.numerator = 1;
-		param->parm.capture.capturemode = dev->run_mode;
-		param->parm.capture.timeperframe.denominator =
-			gc0310_res[dev->fmt_idx].fps;
-	}
-	return 0;
-}
-
-static int gc0310_s_parm(struct v4l2_subdev *sd,
-			struct v4l2_streamparm *param)
-{
-	struct gc0310_device *dev = to_gc0310_sensor(sd);
-	dev->run_mode = param->parm.capture.capturemode;
-
-	mutex_lock(&dev->input_lock);
-	switch (dev->run_mode) {
-	case CI_MODE_VIDEO:
-		gc0310_res = gc0310_res_video;
-		N_RES = N_RES_VIDEO;
-		break;
-	case CI_MODE_STILL_CAPTURE:
-		gc0310_res = gc0310_res_still;
-		N_RES = N_RES_STILL;
-		break;
-	default:
-		gc0310_res = gc0310_res_preview;
-		N_RES = N_RES_PREVIEW;
-	}
-	mutex_unlock(&dev->input_lock);
-	return 0;
-}
-
 static int gc0310_g_frame_interval(struct v4l2_subdev *sd,
 				   struct v4l2_subdev_frame_interval *interval)
 {
@@ -1292,9 +1246,7 @@ static int gc0310_enum_frame_size(struct v4l2_subdev *sd,
 	fse->max_height = gc0310_res[index].height;
 
 	return 0;
-
 }
-
 
 static int gc0310_g_skip_frames(struct v4l2_subdev *sd, u32 *frames)
 {
@@ -1313,8 +1265,6 @@ static const struct v4l2_subdev_sensor_ops gc0310_sensor_ops = {
 
 static const struct v4l2_subdev_video_ops gc0310_video_ops = {
 	.s_stream = gc0310_s_stream,
-	.g_parm = gc0310_g_parm,
-	.s_parm = gc0310_s_parm,
 	.g_frame_interval = gc0310_g_frame_interval,
 };
 
@@ -1341,6 +1291,7 @@ static int gc0310_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct gc0310_device *dev = to_gc0310_sensor(sd);
+
 	dev_dbg(&client->dev, "gc0310_remove...\n");
 
 	dev->platform_data->csi_cfg(sd, 0);
@@ -1360,7 +1311,6 @@ static int gc0310_probe(struct i2c_client *client)
 	void *pdata;
 	unsigned int i;
 
-	pr_info("%s S\n", __func__);
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (!dev)
 		return -ENOMEM;
@@ -1368,7 +1318,7 @@ static int gc0310_probe(struct i2c_client *client)
 	mutex_init(&dev->input_lock);
 
 	dev->fmt_idx = 0;
-	v4l2_i2c_subdev_init(&(dev->sd), client, &gc0310_ops);
+	v4l2_i2c_subdev_init(&dev->sd, client, &gc0310_ops);
 
 	pdata = gmin_camera_platform_data(&dev->sd,
 					  ATOMISP_INPUT_FORMAT_RAW_8,

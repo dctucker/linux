@@ -348,8 +348,8 @@ enum i40iw_status_code i40iw_puda_poll_completion(struct i40iw_sc_dev *dev,
 		spin_lock_irqsave(&rsrc->bufpool_lock, flags);
 		rsrc->tx_wqe_avail_cnt++;
 		spin_unlock_irqrestore(&rsrc->bufpool_lock, flags);
-		if (!list_empty(&rsrc->vsi->ilq->txpend))
-			i40iw_puda_send_buf(rsrc->vsi->ilq, NULL);
+		if (!list_empty(&rsrc->txpend))
+			i40iw_puda_send_buf(rsrc, NULL);
 	}
 
 done:
@@ -511,7 +511,8 @@ static void i40iw_puda_qp_setctx(struct i40iw_puda_rsrc *rsrc)
 
 /**
  * i40iw_puda_qp_wqe - setup wqe for qp create
- * @rsrc: resource for qp
+ * @dev: iwarp device
+ * @qp: resource for qp
  */
 static enum i40iw_status_code i40iw_puda_qp_wqe(struct i40iw_sc_dev *dev, struct i40iw_sc_qp *qp)
 {
@@ -623,7 +624,8 @@ static enum i40iw_status_code i40iw_puda_qp_create(struct i40iw_puda_rsrc *rsrc)
 
 /**
  * i40iw_puda_cq_wqe - setup wqe for cq create
- * @rsrc: resource for cq
+ * @dev: iwarp device
+ * @cq: cq to setup
  */
 static enum i40iw_status_code i40iw_puda_cq_wqe(struct i40iw_sc_dev *dev, struct i40iw_sc_cq *cq)
 {
@@ -782,7 +784,7 @@ static void i40iw_puda_free_cq(struct i40iw_puda_rsrc *rsrc)
 
 /**
  * i40iw_puda_dele_resources - delete all resources during close
- * @dev: iwarp device
+ * @vsi: pointer to vsi structure
  * @type: type of resource to dele
  * @reset: true if reset chip
  */
@@ -814,13 +816,13 @@ void i40iw_puda_dele_resources(struct i40iw_sc_vsi *vsi,
 	switch (rsrc->completion) {
 	case PUDA_HASH_CRC_COMPLETE:
 		i40iw_free_hash_desc(rsrc->hash_desc);
-		/* fall through */
+		fallthrough;
 	case PUDA_QP_CREATED:
 		if (!reset)
 			i40iw_puda_free_qp(rsrc);
 
 		i40iw_free_dma_mem(dev->hw, &rsrc->qpmem);
-		/* fallthrough */
+		fallthrough;
 	case PUDA_CQ_CREATED:
 		if (!reset)
 			i40iw_puda_free_cq(rsrc);
@@ -876,7 +878,7 @@ static enum i40iw_status_code i40iw_puda_allocbufs(struct i40iw_puda_rsrc *rsrc,
 
 /**
  * i40iw_puda_create_rsrc - create resouce (ilq or ieq)
- * @dev: iwarp device
+ * @vsi: pointer to vsi structure
  * @info: resource information
  */
 enum i40iw_status_code i40iw_puda_create_rsrc(struct i40iw_sc_vsi *vsi,
@@ -998,7 +1000,7 @@ static void i40iw_ilq_putback_rcvbuf(struct i40iw_sc_qp *qp, u32 wqe_idx)
 }
 
 /**
- * i40iw_ieq_get_fpdu - given length return fpdu length
+ * i40iw_ieq_get_fpdu_length - given length return fpdu length
  * @length: length if fpdu
  */
 static u16 i40iw_ieq_get_fpdu_length(u16 length)
@@ -1121,6 +1123,7 @@ static void  i40iw_ieq_compl_pfpdu(struct i40iw_puda_rsrc *ieq,
 
 /**
  * i40iw_ieq_create_pbufl - create buffer list for single fpdu
+ * @pfpdu: partial management per user qp
  * @rxlist: resource list for receive ieq buffes
  * @pbufl: temp. list for buffers for fpddu
  * @buf: first receive buffer
@@ -1434,7 +1437,7 @@ static void i40iw_ieq_handle_exception(struct i40iw_puda_rsrc *ieq,
 
 /**
  * i40iw_ieq_receive - received exception buffer
- * @dev: iwarp device
+ * @vsi: pointer to vsi structure
  * @buf: exception buffer received
  */
 static void i40iw_ieq_receive(struct i40iw_sc_vsi *vsi,
@@ -1471,10 +1474,6 @@ static void i40iw_ieq_tx_compl(struct i40iw_sc_vsi *vsi, void *sqwrid)
 	struct i40iw_puda_buf *buf = (struct i40iw_puda_buf *)sqwrid;
 
 	i40iw_puda_ret_bufpool(ieq, buf);
-	if (!list_empty(&ieq->txpend)) {
-		buf = i40iw_puda_get_listbuf(&ieq->txpend);
-		i40iw_puda_send_buf(ieq, buf);
-	}
 }
 
 /**

@@ -704,7 +704,7 @@ static const struct clk_ops iproc_clk_ops = {
 	.set_rate = iproc_clk_set_rate,
 };
 
-/**
+/*
  * Some PLLs require the PLL SW override bit to be set before changes can be
  * applied to the PLL
  */
@@ -744,8 +744,7 @@ void iproc_pll_clk_setup(struct device_node *node,
 	if (WARN_ON(!pll))
 		return;
 
-	clk_data = kzalloc(sizeof(*clk_data->hws) * num_clks +
-				sizeof(*clk_data), GFP_KERNEL);
+	clk_data = kzalloc(struct_size(clk_data, hws, num_clks), GFP_KERNEL);
 	if (WARN_ON(!clk_data))
 		goto err_clk_data;
 	clk_data->num = num_clks;

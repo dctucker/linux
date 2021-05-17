@@ -26,12 +26,37 @@ static const char *__doc_err_only__=
 #include <net/if.h>
 #include <time.h>
 
-#include "libbpf.h"
-#include "bpf_load.h"
+#include <signal.h>
+#include <bpf/bpf.h>
+#include <bpf/libbpf.h>
 #include "bpf_util.h"
 
+enum map_type {
+	REDIRECT_ERR_CNT,
+	EXCEPTION_CNT,
+	CPUMAP_ENQUEUE_CNT,
+	CPUMAP_KTHREAD_CNT,
+	DEVMAP_XMIT_CNT,
+};
+
+static const char *const map_type_strings[] = {
+	[REDIRECT_ERR_CNT] = "redirect_err_cnt",
+	[EXCEPTION_CNT] = "exception_cnt",
+	[CPUMAP_ENQUEUE_CNT] = "cpumap_enqueue_cnt",
+	[CPUMAP_KTHREAD_CNT] = "cpumap_kthread_cnt",
+	[DEVMAP_XMIT_CNT] = "devmap_xmit_cnt",
+};
+
+#define NUM_MAP 5
+#define NUM_TP 8
+
+static int tp_cnt;
+static int map_cnt;
 static int verbose = 1;
 static bool debug = false;
+struct bpf_map *map_data[NUM_MAP] = {};
+struct bpf_link *tp_links[NUM_TP] = {};
+struct bpf_object *obj;
 
 static const struct option long_options[] = {
 	{"help",	no_argument,		NULL, 'h' },
@@ -40,6 +65,16 @@ static const struct option long_options[] = {
 	{"sec", 	required_argument,	NULL, 's' },
 	{0, 0, NULL,  0 }
 };
+
+static void int_exit(int sig)
+{
+	/* Detach tracepoints */
+	while (tp_cnt)
+		bpf_link__destroy(tp_links[--tp_cnt]);
+
+	bpf_object__close(obj);
+	exit(0);
+}
 
 /* C standard specifies two constants, EXIT_SUCCESS(0) and EXIT_FAILURE(1) */
 #define EXIT_FAIL_MEM	5
@@ -58,7 +93,7 @@ static void usage(char *argv[])
 			printf(" flag (internal value:%d)",
 			       *long_options[i].flag);
 		else
-			printf("(internal short-option: -%c)",
+			printf("short-option: -%c",
 			       long_options[i].val);
 		printf("\n");
 	}
@@ -117,6 +152,7 @@ struct datarec {
 	__u64 processed;
 	__u64 dropped;
 	__u64 info;
+	__u64 err;
 };
 #define MAX_CPUS 64
 
@@ -141,6 +177,7 @@ struct stats_record {
 	struct record_u64 xdp_exception[XDP_ACTION_MAX];
 	struct record xdp_cpumap_kthread;
 	struct record xdp_cpumap_enqueue[MAX_CPUS];
+	struct record xdp_devmap_xmit;
 };
 
 static bool map_collect_record(int fd, __u32 key, struct record *rec)
@@ -151,6 +188,7 @@ static bool map_collect_record(int fd, __u32 key, struct record *rec)
 	__u64 sum_processed = 0;
 	__u64 sum_dropped = 0;
 	__u64 sum_info = 0;
+	__u64 sum_err = 0;
 	int i;
 
 	if ((bpf_map_lookup_elem(fd, &key, values)) != 0) {
@@ -169,10 +207,13 @@ static bool map_collect_record(int fd, __u32 key, struct record *rec)
 		sum_dropped        += values[i].dropped;
 		rec->cpu[i].info = values[i].info;
 		sum_info        += values[i].info;
+		rec->cpu[i].err = values[i].err;
+		sum_err        += values[i].err;
 	}
 	rec->total.processed = sum_processed;
 	rec->total.dropped   = sum_dropped;
 	rec->total.info      = sum_info;
+	rec->total.err       = sum_err;
 	return true;
 }
 
@@ -273,6 +314,18 @@ static double calc_info(struct datarec *r, struct datarec *p, double period)
 	return pps;
 }
 
+static double calc_err(struct datarec *r, struct datarec *p, double period)
+{
+	__u64 packets = 0;
+	double pps = 0;
+
+	if (period > 0) {
+		packets = r->err - p->err;
+		pps = packets / period;
+	}
+	return pps;
+}
+
 static void stats_print(struct stats_record *stats_rec,
 			struct stats_record *stats_prev,
 			bool err_only)
@@ -330,7 +383,7 @@ static void stats_print(struct stats_record *stats_rec,
 			pps = calc_pps_u64(r, p, t);
 			if (pps > 0)
 				printf(fmt1, "Exception", i,
-				       0.0, pps, err2str(rec_i));
+				       0.0, pps, action2str(rec_i));
 		}
 		pps = calc_pps_u64(&rec->total, &prev->total, t);
 		if (pps > 0)
@@ -397,7 +450,7 @@ static void stats_print(struct stats_record *stats_rec,
 			info = calc_info(r, p, t);
 			if (info > 0)
 				i_str = "sched";
-			if (pps > 0)
+			if (pps > 0 || drop > 0)
 				printf(fmt1, "cpumap-kthread",
 				       i, pps, drop, info, i_str);
 		}
@@ -407,6 +460,50 @@ static void stats_print(struct stats_record *stats_rec,
 		if (info > 0)
 			i_str = "sched-sum";
 		printf(fmt2, "cpumap-kthread", "total", pps, drop, info, i_str);
+	}
+
+	/* devmap ndo_xdp_xmit stats */
+	{
+		char *fmt1 = "%-15s %-7d %'-12.0f %'-12.0f %'-10.2f %s %s\n";
+		char *fmt2 = "%-15s %-7s %'-12.0f %'-12.0f %'-10.2f %s %s\n";
+		struct record *rec, *prev;
+		double drop, info, err;
+		char *i_str = "";
+		char *err_str = "";
+
+		rec  =  &stats_rec->xdp_devmap_xmit;
+		prev = &stats_prev->xdp_devmap_xmit;
+		t = calc_period(rec, prev);
+		for (i = 0; i < nr_cpus; i++) {
+			struct datarec *r = &rec->cpu[i];
+			struct datarec *p = &prev->cpu[i];
+
+			pps  = calc_pps(r, p, t);
+			drop = calc_drop(r, p, t);
+			info = calc_info(r, p, t);
+			err  = calc_err(r, p, t);
+			if (info > 0) {
+				i_str = "bulk-average";
+				info = (pps+drop) / info; /* calc avg bulk */
+			}
+			if (err > 0)
+				err_str = "drv-err";
+			if (pps > 0 || drop > 0)
+				printf(fmt1, "devmap-xmit",
+				       i, pps, drop, info, i_str, err_str);
+		}
+		pps = calc_pps(&rec->total, &prev->total, t);
+		drop = calc_drop(&rec->total, &prev->total, t);
+		info = calc_info(&rec->total, &prev->total, t);
+		err  = calc_err(&rec->total, &prev->total, t);
+		if (info > 0) {
+			i_str = "bulk-average";
+			info = (pps+drop) / info; /* calc avg bulk */
+		}
+		if (err > 0)
+			err_str = "drv-err";
+		printf(fmt2, "devmap-xmit", "total", pps, drop,
+		       info, i_str, err_str);
 	}
 
 	printf("\n");
@@ -421,21 +518,24 @@ static bool stats_collect(struct stats_record *rec)
 	 * this can happen by someone running perf-record -e
 	 */
 
-	fd = map_data[0].fd; /* map0: redirect_err_cnt */
+	fd = bpf_map__fd(map_data[REDIRECT_ERR_CNT]);
 	for (i = 0; i < REDIR_RES_MAX; i++)
 		map_collect_record_u64(fd, i, &rec->xdp_redirect[i]);
 
-	fd = map_data[1].fd; /* map1: exception_cnt */
+	fd = bpf_map__fd(map_data[EXCEPTION_CNT]);
 	for (i = 0; i < XDP_ACTION_MAX; i++) {
 		map_collect_record_u64(fd, i, &rec->xdp_exception[i]);
 	}
 
-	fd = map_data[2].fd; /* map2: cpumap_enqueue_cnt */
+	fd = bpf_map__fd(map_data[CPUMAP_ENQUEUE_CNT]);
 	for (i = 0; i < MAX_CPUS; i++)
 		map_collect_record(fd, i, &rec->xdp_cpumap_enqueue[i]);
 
-	fd = map_data[3].fd; /* map3: cpumap_kthread_cnt */
+	fd = bpf_map__fd(map_data[CPUMAP_KTHREAD_CNT]);
 	map_collect_record(fd, 0, &rec->xdp_cpumap_kthread);
+
+	fd = bpf_map__fd(map_data[DEVMAP_XMIT_CNT]);
+	map_collect_record(fd, 0, &rec->xdp_devmap_xmit);
 
 	return true;
 }
@@ -444,11 +544,8 @@ static void *alloc_rec_per_cpu(int record_size)
 {
 	unsigned int nr_cpus = bpf_num_possible_cpus();
 	void *array;
-	size_t size;
 
-	size = record_size * nr_cpus;
-	array = malloc(size);
-	memset(array, 0, size);
+	array = calloc(nr_cpus, record_size);
 	if (!array) {
 		fprintf(stderr, "Mem alloc error (nr_cpus:%u)\n", nr_cpus);
 		exit(EXIT_FAIL_MEM);
@@ -463,8 +560,7 @@ static struct stats_record *alloc_stats_record(void)
 	int i;
 
 	/* Alloc main stats_record structure */
-	rec = malloc(sizeof(*rec));
-	memset(rec, 0, sizeof(*rec));
+	rec = calloc(1, sizeof(*rec));
 	if (!rec) {
 		fprintf(stderr, "Mem alloc error\n");
 		exit(EXIT_FAIL_MEM);
@@ -480,6 +576,7 @@ static struct stats_record *alloc_stats_record(void)
 
 	rec_sz = sizeof(struct datarec);
 	rec->xdp_cpumap_kthread.cpu = alloc_rec_per_cpu(rec_sz);
+	rec->xdp_devmap_xmit.cpu    = alloc_rec_per_cpu(rec_sz);
 
 	for (i = 0; i < MAX_CPUS; i++)
 		rec->xdp_cpumap_enqueue[i].cpu = alloc_rec_per_cpu(rec_sz);
@@ -498,6 +595,7 @@ static void free_stats_record(struct stats_record *r)
 		free(r->xdp_exception[i].cpu);
 
 	free(r->xdp_cpumap_kthread.cpu);
+	free(r->xdp_devmap_xmit.cpu);
 
 	for (i = 0; i < MAX_CPUS; i++)
 		free(r->xdp_cpumap_enqueue[i].cpu);
@@ -535,8 +633,8 @@ static void stats_poll(int interval, bool err_only)
 
 	/* TODO Need more advanced stats on error types */
 	if (verbose) {
-		printf(" - Stats map0: %s\n", map_data[0].name);
-		printf(" - Stats map1: %s\n", map_data[1].name);
+		printf(" - Stats map0: %s\n", bpf_map__name(map_data[0]));
+		printf(" - Stats map1: %s\n", bpf_map__name(map_data[1]));
 		printf("\n");
 	}
 	fflush(stdout);
@@ -555,46 +653,52 @@ static void stats_poll(int interval, bool err_only)
 
 static void print_bpf_prog_info(void)
 {
-	int i;
+	struct bpf_program *prog;
+	struct bpf_map *map;
+	int i = 0;
 
 	/* Prog info */
-	printf("Loaded BPF prog have %d bpf program(s)\n", prog_cnt);
-	for (i = 0; i < prog_cnt; i++) {
-		printf(" - prog_fd[%d] = fd(%d)\n", i, prog_fd[i]);
+	printf("Loaded BPF prog have %d bpf program(s)\n", tp_cnt);
+	bpf_object__for_each_program(prog, obj) {
+		printf(" - prog_fd[%d] = fd(%d)\n", i, bpf_program__fd(prog));
+		i++;
 	}
 
+	i = 0;
 	/* Maps info */
-	printf("Loaded BPF prog have %d map(s)\n", map_data_count);
-	for (i = 0; i < map_data_count; i++) {
-		char *name = map_data[i].name;
-		int fd     = map_data[i].fd;
+	printf("Loaded BPF prog have %d map(s)\n", map_cnt);
+	bpf_object__for_each_map(map, obj) {
+		const char *name = bpf_map__name(map);
+		int fd		 = bpf_map__fd(map);
 
 		printf(" - map_data[%d] = fd(%d) name:%s\n", i, fd, name);
+		i++;
 	}
 
 	/* Event info */
-	printf("Searching for (max:%d) event file descriptor(s)\n", prog_cnt);
-	for (i = 0; i < prog_cnt; i++) {
-		if (event_fd[i] != -1)
-			printf(" - event_fd[%d] = fd(%d)\n", i, event_fd[i]);
+	printf("Searching for (max:%d) event file descriptor(s)\n", tp_cnt);
+	for (i = 0; i < tp_cnt; i++) {
+		int fd = bpf_link__fd(tp_links[i]);
+
+		if (fd != -1)
+			printf(" - event_fd[%d] = fd(%d)\n", i, fd);
 	}
 }
 
 int main(int argc, char **argv)
 {
-	struct rlimit r = {RLIM_INFINITY, RLIM_INFINITY};
+	struct bpf_program *prog;
 	int longindex = 0, opt;
-	int ret = EXIT_SUCCESS;
-	char bpf_obj_file[256];
+	int ret = EXIT_FAILURE;
+	enum map_type type;
+	char filename[256];
 
 	/* Default settings: */
 	bool errors_only = true;
 	int interval = 2;
 
-	snprintf(bpf_obj_file, sizeof(bpf_obj_file), "%s_kern.o", argv[0]);
-
 	/* Parse commands line args */
-	while ((opt = getopt_long(argc, argv, "h",
+	while ((opt = getopt_long(argc, argv, "hDSs:",
 				  long_options, &longindex)) != -1) {
 		switch (opt) {
 		case 'D':
@@ -609,40 +713,75 @@ int main(int argc, char **argv)
 		case 'h':
 		default:
 			usage(argv);
-			return EXIT_FAILURE;
+			return ret;
 		}
 	}
 
-	if (setrlimit(RLIMIT_MEMLOCK, &r)) {
-		perror("setrlimit(RLIMIT_MEMLOCK)");
-		return EXIT_FAILURE;
+	snprintf(filename, sizeof(filename), "%s_kern.o", argv[0]);
+
+	/* Remove tracepoint program when program is interrupted or killed */
+	signal(SIGINT, int_exit);
+	signal(SIGTERM, int_exit);
+
+	obj = bpf_object__open_file(filename, NULL);
+	if (libbpf_get_error(obj)) {
+		printf("ERROR: opening BPF object file failed\n");
+		obj = NULL;
+		goto cleanup;
 	}
 
-	if (load_bpf_file(bpf_obj_file)) {
-		printf("ERROR - bpf_log_buf: %s", bpf_log_buf);
-		return EXIT_FAILURE;
+	/* load BPF program */
+	if (bpf_object__load(obj)) {
+		printf("ERROR: loading BPF object file failed\n");
+		goto cleanup;
 	}
-	if (!prog_fd[0]) {
-		printf("ERROR - load_bpf_file: %s\n", strerror(errno));
-		return EXIT_FAILURE;
+
+	for (type = 0; type < NUM_MAP; type++) {
+		map_data[type] =
+			bpf_object__find_map_by_name(obj, map_type_strings[type]);
+
+		if (libbpf_get_error(map_data[type])) {
+			printf("ERROR: finding a map in obj file failed\n");
+			goto cleanup;
+		}
+		map_cnt++;
+	}
+
+	bpf_object__for_each_program(prog, obj) {
+		tp_links[tp_cnt] = bpf_program__attach(prog);
+		if (libbpf_get_error(tp_links[tp_cnt])) {
+			printf("ERROR: bpf_program__attach failed\n");
+			tp_links[tp_cnt] = NULL;
+			goto cleanup;
+		}
+		tp_cnt++;
 	}
 
 	if (debug) {
 		print_bpf_prog_info();
 	}
 
-	/* Unload/stop tracepoint event by closing fd's */
+	/* Unload/stop tracepoint event by closing bpf_link's */
 	if (errors_only) {
-		/* The prog_fd[i] and event_fd[i] depend on the
-		 * order the functions was defined in _kern.c
+		/* The bpf_link[i] depend on the order of
+		 * the functions was defined in _kern.c
 		 */
-		close(event_fd[2]); /* tracepoint/xdp/xdp_redirect */
-		close(prog_fd[2]);  /* func: trace_xdp_redirect */
-		close(event_fd[3]); /* tracepoint/xdp/xdp_redirect_map */
-		close(prog_fd[3]);  /* func: trace_xdp_redirect_map */
+		bpf_link__destroy(tp_links[2]);	/* tracepoint/xdp/xdp_redirect */
+		tp_links[2] = NULL;
+
+		bpf_link__destroy(tp_links[3]);	/* tracepoint/xdp/xdp_redirect_map */
+		tp_links[3] = NULL;
 	}
 
 	stats_poll(interval, errors_only);
 
+	ret = EXIT_SUCCESS;
+
+cleanup:
+	/* Detach tracepoints */
+	while (tp_cnt)
+		bpf_link__destroy(tp_links[--tp_cnt]);
+
+	bpf_object__close(obj);
 	return ret;
 }

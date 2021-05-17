@@ -1,10 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2012 Avionic Design GmbH
  * Copyright (C) 2012 NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #ifndef TEGRA_DC_H
@@ -55,7 +52,8 @@ struct tegra_dc_soc_info {
 	bool supports_interlacing;
 	bool supports_cursor;
 	bool supports_block_linear;
-	bool supports_blending;
+	bool supports_sector_layout;
+	bool has_legacy_blending;
 	unsigned int pitch_align;
 	bool has_powergate;
 	bool coupled_pm;
@@ -66,6 +64,9 @@ struct tegra_dc_soc_info {
 	unsigned int num_primary_formats;
 	const u32 *overlay_formats;
 	unsigned int num_overlay_formats;
+	const u64 *modifiers;
+	bool has_win_a_without_filters;
+	bool has_win_c_without_vert_filter;
 };
 
 struct tegra_dc {
@@ -90,8 +91,6 @@ struct tegra_dc {
 	struct drm_info_list *debugfs_files;
 
 	const struct tegra_dc_soc_info *soc;
-
-	struct iommu_domain *domain;
 };
 
 static inline struct tegra_dc *
@@ -138,7 +137,8 @@ struct tegra_dc_window {
 	unsigned int stride[2];
 	unsigned long base[3];
 	unsigned int zpos;
-	bool bottom_up;
+	bool reflect_x;
+	bool reflect_y;
 
 	struct tegra_bo_tiling tiling;
 	u32 format;
@@ -297,7 +297,7 @@ int tegra_dc_rgb_exit(struct tegra_dc *dc);
 #define SOR1_TIMING_CYA	(1 << 27)
 #define CURSOR_ENABLE	(1 << 16)
 
-#define SOR_ENABLE(x)	(1 << (25 + (x)))
+#define SOR_ENABLE(x)	(1 << (25 + (((x) > 1) ? ((x) + 1) : (x))))
 
 #define DC_DISP_DISP_MEM_HIGH_PRIORITY		0x403
 #define CURSOR_THRESHOLD(x)   (((x) & 0x03) << 24)
@@ -512,6 +512,8 @@ int tegra_dc_rgb_exit(struct tegra_dc *dc);
 
 #define DC_DISP_CURSOR_START_ADDR_HI		0x4ec
 #define DC_DISP_BLEND_CURSOR_CONTROL		0x4f1
+#define CURSOR_COMPOSITION_MODE_BLEND		(0 << 25)
+#define CURSOR_COMPOSITION_MODE_XOR		(1 << 25)
 #define CURSOR_MODE_LEGACY			(0 << 24)
 #define CURSOR_MODE_NORMAL			(1 << 24)
 #define CURSOR_DST_BLEND_ZERO			(0 << 16)
@@ -552,6 +554,9 @@ int tegra_dc_rgb_exit(struct tegra_dc *dc);
 #define  THREAD_NUM(x) (((x) & 0x1f) << 1)
 #define  THREAD_GROUP_ENABLE (1 << 0)
 
+#define DC_WIN_H_FILTER_P(p)			(0x601 + (p))
+#define DC_WIN_V_FILTER_P(p)			(0x619 + (p))
+
 #define DC_WIN_CSC_YOF				0x611
 #define DC_WIN_CSC_KYRGB			0x612
 #define DC_WIN_CSC_KUR				0x613
@@ -565,6 +570,8 @@ int tegra_dc_rgb_exit(struct tegra_dc *dc);
 #define H_DIRECTION  (1 <<  0)
 #define V_DIRECTION  (1 <<  2)
 #define COLOR_EXPAND (1 <<  6)
+#define H_FILTER     (1 <<  8)
+#define V_FILTER     (1 << 10)
 #define CSC_ENABLE   (1 << 18)
 #define WIN_ENABLE   (1 << 30)
 
@@ -700,6 +707,9 @@ int tegra_dc_rgb_exit(struct tegra_dc *dc);
 #define DC_DISP_CORE_SOR_SET_CONTROL(x)		(0x403 + (x))
 #define PROTOCOL_MASK (0xf << 8)
 #define PROTOCOL_SINGLE_TMDS_A (0x1 << 8)
+
+#define DC_DISP_PCALC_HEAD_SET_CROPPED_POINT_IN_CURSOR	0x442
+#define DC_DISP_PCALC_HEAD_SET_CROPPED_SIZE_IN_CURSOR	0x446
 
 #define DC_WIN_CORE_WINDOWGROUP_SET_CONTROL	0x702
 #define OWNER_MASK (0xf << 0)

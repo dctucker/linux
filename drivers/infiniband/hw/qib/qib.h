@@ -52,6 +52,7 @@
 #include <linux/kref.h>
 #include <linux/sched.h>
 #include <linux/kthread.h>
+#include <linux/xarray.h>
 #include <rdma/ib_hdrs.h>
 #include <rdma/rdma_vt.h>
 
@@ -472,9 +473,6 @@ enum qib_sdma_events {
 	qib_sdma_event_e90_timer_tick,
 };
 
-extern char *qib_sdma_state_names[];
-extern char *qib_sdma_event_names[];
-
 struct sdma_set_state_action {
 	unsigned op_enable:1;
 	unsigned op_intenable:1;
@@ -621,18 +619,18 @@ struct qib_pportdata {
 	/* LID mask control */
 	u8 lmc;
 	u8 link_width_supported;
-	u8 link_speed_supported;
+	u16 link_speed_supported;
 	u8 link_width_enabled;
-	u8 link_speed_enabled;
+	u16 link_speed_enabled;
 	u8 link_width_active;
-	u8 link_speed_active;
+	u16 link_speed_active;
 	u8 vls_supported;
 	u8 vls_operational;
 	/* Rx Polarity inversion (compensate for ~tx on partner) */
 	u8 rx_pol_inv;
 
 	u8 hw_pidx;     /* physical port index */
-	u8 port;        /* IB port number and index into dd->pports - 1 */
+	u32 port;        /* IB port number and index into dd->pports - 1 */
 
 	u8 delay_mult;
 
@@ -1108,8 +1106,7 @@ struct qib_filedata {
 	int rec_cpu_num; /* for cpu affinity; -1 if none */
 };
 
-extern struct list_head qib_dev_list;
-extern spinlock_t qib_devs_lock;
+extern struct xarray qib_dev_table;
 extern struct qib_devdata *qib_lookup(int unit);
 extern u32 qib_cpulist_count;
 extern unsigned long *qib_cpulist;
@@ -1203,10 +1200,10 @@ static inline struct qib_pportdata *ppd_from_ibp(struct qib_ibport *ibp)
 	return container_of(ibp, struct qib_pportdata, ibport_data);
 }
 
-static inline struct qib_ibport *to_iport(struct ib_device *ibdev, u8 port)
+static inline struct qib_ibport *to_iport(struct ib_device *ibdev, u32 port)
 {
 	struct qib_devdata *dd = dd_from_ibdev(ibdev);
-	unsigned pidx = port - 1; /* IB number port from 1, hdw from 0 */
+	u32 pidx = port - 1; /* IB number port from 1, hdw from 0 */
 
 	WARN_ON(pidx >= dd->num_pports);
 	return &dd->pport[pidx].ibport_data;
@@ -1231,6 +1228,7 @@ static inline struct qib_ibport *to_iport(struct ib_device *ibdev, u8 port)
 #define QIB_BADINTR           0x8000 /* severe interrupt problems */
 #define QIB_DCA_ENABLED       0x10000 /* Direct Cache Access enabled */
 #define QIB_HAS_QSFP          0x20000 /* device (card instance) has QSFP */
+#define QIB_SHUTDOWN          0x40000 /* device is shutting down */
 
 /*
  * values for ppd->lflags (_ib_port_ related flags)
@@ -1305,11 +1303,6 @@ int qib_sdma_verbs_send(struct qib_pportdata *, struct rvt_sge_state *,
 /* ppd->sdma_lock should be locked before calling this. */
 int qib_sdma_make_progress(struct qib_pportdata *dd);
 
-static inline int qib_sdma_empty(const struct qib_pportdata *ppd)
-{
-	return ppd->sdma_descq_added == ppd->sdma_descq_removed;
-}
-
 /* must be called under qib_sdma_lock */
 static inline u16 qib_sdma_descq_freecnt(const struct qib_pportdata *ppd)
 {
@@ -1366,39 +1359,18 @@ static inline u32 qib_get_rcvhdrtail(const struct qib_ctxtdata *rcd)
 		*((volatile __le64 *)rcd->rcvhdrtail_kvaddr)); /* DMA'ed */
 }
 
-static inline u32 qib_get_hdrqtail(const struct qib_ctxtdata *rcd)
-{
-	const struct qib_devdata *dd = rcd->dd;
-	u32 hdrqtail;
-
-	if (dd->flags & QIB_NODMA_RTAIL) {
-		__le32 *rhf_addr;
-		u32 seq;
-
-		rhf_addr = (__le32 *) rcd->rcvhdrq +
-			rcd->head + dd->rhf_offset;
-		seq = qib_hdrget_seq(rhf_addr);
-		hdrqtail = rcd->head;
-		if (seq == rcd->seq_cnt)
-			hdrqtail++;
-	} else
-		hdrqtail = qib_get_rcvhdrtail(rcd);
-
-	return hdrqtail;
-}
-
 /*
  * sysfs interface.
  */
 
 extern const char ib_qib_version[];
+extern const struct attribute_group qib_attr_group;
 
 int qib_device_create(struct qib_devdata *);
 void qib_device_remove(struct qib_devdata *);
 
-int qib_create_port_files(struct ib_device *ibdev, u8 port_num,
+int qib_create_port_files(struct ib_device *ibdev, u32 port_num,
 			  struct kobject *kobj);
-int qib_verbs_register_sysfs(struct qib_devdata *);
 void qib_verbs_unregister_sysfs(struct qib_devdata *);
 /* Hook for sysfs read of QSFP */
 extern int qib_qsfp_dump(struct qib_pportdata *ppd, char *buf, int len);
@@ -1426,8 +1398,7 @@ u64 qib_sps_ints(void);
 /*
  * dma_addr wrappers - all 0's invalid for hw
  */
-dma_addr_t qib_map_page(struct pci_dev *, struct page *, unsigned long,
-			  size_t, int);
+int qib_map_page(struct pci_dev *d, struct page *p, dma_addr_t *daddr);
 struct pci_dev *qib_get_pci_dev(struct rvt_dev_info *rdi);
 
 /*
